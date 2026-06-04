@@ -1,0 +1,59 @@
+image: atlassian/default-image:2
+
+clone:
+  depth: full
+definitions:
+  services:
+    docker:
+      memory: 3072 # Memory in MB -  allocate 3GB (3072MB) of memory to docker service
+
+pipelines:
+  branches:
+    uat:
+    - step:
+        name: Deploy Agent Application Backend Service to Staging 
+        deployment: Staging
+        oidc: true        
+        script:
+          # build the image
+          - docker build -t $IMAGE_NAME .
+          # use the pipe to push the image to AWS ECR
+          - pipe: atlassian/aws-ecr-push-image:2.1.0
+            variables:
+              AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+              AWS_OIDC_ROLE_ARN: $AWS_OIDC_ROLE_ARN
+              IMAGE_NAME: $IMAGE_NAME
+              TAGS: 'latest'
+          - pipe: atlassian/aws-ecs-deploy:1.9.0
+            variables:
+              #AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+              #AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+              AWS_OIDC_ROLE_ARN: $AWS_OIDC_ROLE_ARN
+              AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+              CLUSTER_NAME: $CLUSTER_NAME
+              SERVICE_NAME: $SERVICE_NAME
+              FORCE_NEW_DEPLOYMENT: 'true'
+    master:
+    - step:
+        name: Deploy Agent Application Backend Service to Staging 
+        deployment: Production
+        oidc: true        
+        script:
+          # build the image
+          - docker build -t $IMAGE_NAME .
+          # use the pipe to push the image to AWS ECR
+          - pipe: atlassian/aws-ecr-push-image:2.1.0
+            variables:
+              AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+              AWS_OIDC_ROLE_ARN: $AWS_OIDC_ROLE_ARN
+              IMAGE_NAME: $IMAGE_NAME
+              TAGS: 'latest'
+          - pipe: atlassian/aws-ecs-deploy:1.9.0
+            variables:
+              #AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+              #AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+              AWS_OIDC_ROLE_ARN: $AWS_OIDC_ROLE_ARN
+              AWS_DEFAULT_REGION: $AWS_DEFAULT_REGION
+              CLUSTER_NAME: $CLUSTER_NAME
+              SERVICE_NAME: $SERVICE_NAME
+              FORCE_NEW_DEPLOYMENT: 'true'              
