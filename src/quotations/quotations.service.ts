@@ -68,7 +68,11 @@ export class QuotationService {
     }
 
     if (query.status) {
-      conditions.push({ status: query.status });
+      conditions.push({
+        status: {
+          [Op.like]: `%${query.status}%`,
+        },
+      });
     }
 
     if (query.quotation_number) {
@@ -79,11 +83,94 @@ export class QuotationService {
       });
     }
 
+    if (query.customer_name) {
+      conditions.push({
+        customer_name: {
+          [Op.like]: `%${query.customer_name}%`,
+        },
+      });
+    }
+
+    if (query.contact_person_name) {
+      conditions.push({
+        contact_person_name: {
+          [Op.like]: `%${query.contact_person_name}%`,
+        },
+      });
+    }
+
+    if (query.contact_person_email) {
+      conditions.push({
+        contact_person_email: {
+          [Op.like]: `%${query.contact_person_email}%`,
+        },
+      });
+    }
+
+    if (query.contact_person_phone) {
+      conditions.push({
+        contact_person_phone: {
+          [Op.like]: `%${query.contact_person_phone}%`,
+        },
+      });
+    }
+
+    if (query.customer_gst_number) {
+      conditions.push({
+        customer_gst_number: {
+          [Op.like]: `%${query.customer_gst_number}%`,
+        },
+      });
+    }
+
+    if (query.customer_type) {
+      conditions.push({
+        customer_type: {
+          [Op.like]: `%${query.customer_type}%`,
+        },
+      });
+    }
+
     if (query.search) {
       conditions.push({
         [Op.or]: [
           {
             quotation_number: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            customer_name: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            contact_person_name: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            contact_person_email: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            contact_person_phone: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            customer_gst_number: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            customer_type: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            status: {
               [Op.like]: `%${query.search}%`,
             },
           },
@@ -529,21 +616,8 @@ export class QuotationService {
       // QUERY
       // =========================================
 
-      // Build include relations and apply customer_name filter if provided
+      // Keep customer include only for display purposes; filtering is snapshot-driven on quotations.
       const includeRelations = this.buildQuotationIncludeRelations();
-      if (query.customer_name) {
-        // find the customer include and add a where clause to filter by display_name
-        for (const inc of includeRelations as any[]) {
-          if (inc.as === 'customer') {
-            inc.where = {
-              ...(inc.where || {}),
-              display_name: { [Op.like]: `%${query.customer_name}%` },
-            };
-            inc.required = true;
-            break;
-          }
-        }
-      }
 
       const result = await this.Quotations.findAndCountAll({
         where: whereClause,
@@ -790,17 +864,11 @@ export class QuotationService {
       );
 
       // Recalculate totals if items changed or monetary fields are not explicitly provided
-      const shouldRecalcTotals =
-        (data.items && data.items.length > 0) ||
-        data.sub_total === undefined ||
-        data.discount === undefined ||
-        data.gst_total === undefined ||
-        data.transport_charges === undefined ||
-        data.grand_total === undefined;
+      const shouldRecalcTotals = data.items && data.items.length > 0;
 
       if (shouldRecalcTotals) {
         const totals = this.computeTotalsFromItems(
-          data.items || [],
+          data.items,
           data.discount,
           data.transport_charges,
         );

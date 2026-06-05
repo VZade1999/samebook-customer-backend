@@ -40,6 +40,26 @@ export class QuotationsListDto {
 
   @IsOptional()
   @IsString()
+  contact_person_name?: string;
+
+  @IsOptional()
+  @IsString()
+  contact_person_email?: string;
+
+  @IsOptional()
+  @IsString()
+  contact_person_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  customer_gst_number?: string;
+
+  @IsOptional()
+  @IsString()
+  customer_type?: string;
+
+  @IsOptional()
+  @IsString()
   quotation_number?: string;
 
   @IsOptional()
