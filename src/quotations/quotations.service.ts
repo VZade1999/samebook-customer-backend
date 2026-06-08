@@ -339,6 +339,9 @@ export class QuotationService {
     items: QuotationItemDto[],
     overallDiscount: number | undefined,
     transportCharges: number | undefined,
+    cgstPercent?: number,
+    sgstPercent?: number,
+    igstPercent?: number,
   ) {
     const subTotal = items.reduce((sum, item) => {
       return sum + (item.qty || 0) * (item.rate || 0);
@@ -349,25 +352,33 @@ export class QuotationService {
       return sum + ((item.discount_percent ?? 0) / 100) * lineSubtotal;
     }, 0);
 
-    // No per-item GST in the schema; GST totals are zero.
     const overallDisc = Number(overallDiscount ?? 0);
     const transport = Number(transportCharges ?? 0);
+    const cgstPct = Number(cgstPercent ?? 0);
+    const sgstPct = Number(sgstPercent ?? 0);
+    const igstPct = Number(igstPercent ?? 0);
 
     const totalDiscount = Number((itemDiscountTotal + overallDisc).toFixed(2));
     const discountPercent = subTotal > 0 ? (totalDiscount / subTotal) * 100 : 0;
+    const taxableAmount = Number((subTotal - totalDiscount).toFixed(2));
 
-    const grandTotal = Number((subTotal - totalDiscount + transport).toFixed(2));
+    const cgstAmount = Number(((taxableAmount * cgstPct) / 100).toFixed(2));
+    const sgstAmount = Number(((taxableAmount * sgstPct) / 100).toFixed(2));
+    const igstAmount = Number(((taxableAmount * igstPct) / 100).toFixed(2));
+    const taxTotal = Number((cgstAmount + sgstAmount + igstAmount).toFixed(2));
+
+    const grandTotal = Number((taxableAmount + taxTotal + transport).toFixed(2));
 
     return {
       sub_total: Number(subTotal.toFixed(2)),
       discount_percent: Number(discountPercent.toFixed(2)),
       discount_amount: totalDiscount,
-      cgst_percent: 0,
-      cgst_amount: 0,
-      sgst_percent: 0,
-      sgst_amount: 0,
-      igst_percent: 0,
-      igst_amount: 0,
+      cgst_percent: cgstPct,
+      cgst_amount: cgstAmount,
+      sgst_percent: sgstPct,
+      sgst_amount: sgstAmount,
+      igst_percent: igstPct,
+      igst_amount: igstAmount,
       transport_charges: transport,
       grand_total: grandTotal,
     };
@@ -381,6 +392,9 @@ export class QuotationService {
       data.items || [],
       data.discount_amount,
       data.transport_charges,
+      data.cgst_percent,
+      data.sgst_percent,
+      data.igst_percent,
     );
 
     return {
@@ -860,14 +874,36 @@ export class QuotationService {
         currentVersion,
       );
 
-      // Recalculate totals if items changed or monetary fields are not explicitly provided
-      const shouldRecalcTotals = data.items && data.items.length > 0;
+      const shouldRecalcTotals = Boolean(
+        (data.items && data.items.length > 0) ||
+          data.discount_amount !== undefined ||
+          data.transport_charges !== undefined ||
+          data.cgst_percent !== undefined ||
+          data.sgst_percent !== undefined ||
+          data.igst_percent !== undefined,
+      );
 
       if (shouldRecalcTotals) {
+        const itemsToRecalc = data.items && data.items.length > 0
+          ? data.items
+          : ((quotation as any).items || []).map((item: any) => ({
+              product_name: item.product_name,
+              qty: item.qty,
+              rate: item.rate,
+              discount_percent: item.discount_percent,
+            }));
+
         const totals = this.computeTotalsFromItems(
-          data.items,
-          data.discount_amount,
-          data.transport_charges,
+          itemsToRecalc,
+          data.discount_amount !== undefined
+            ? data.discount_amount
+            : quotation.discount_amount,
+          data.transport_charges !== undefined
+            ? data.transport_charges
+            : quotation.transport_charges,
+          data.cgst_percent !== undefined ? data.cgst_percent : quotation.cgst_percent,
+          data.sgst_percent !== undefined ? data.sgst_percent : quotation.sgst_percent,
+          data.igst_percent !== undefined ? data.igst_percent : quotation.igst_percent,
         );
 
         Object.assign(updatePayload, {
