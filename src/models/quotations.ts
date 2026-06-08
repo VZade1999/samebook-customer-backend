@@ -21,9 +21,21 @@ export interface quotationsAttributes {
 
   sub_total?: number;
 
-  discount?: number;
+  discount_percent?: number;
 
-  gst_total?: number;
+  discount_amount?: number;
+
+  cgst_percent?: number;
+
+  cgst_amount?: number;
+
+  sgst_percent?: number;
+
+  sgst_amount?: number;
+
+  igst_percent?: number;
+
+  igst_amount?: number;
 
   transport_charges?: number;
 
@@ -81,8 +93,14 @@ export type quotationsOptionalAttributes =
   | 'validity_date'
   | 'status'
   | 'sub_total'
-  | 'discount'
-  | 'gst_total'
+  | 'discount_percent'
+  | 'discount_amount'
+  | 'cgst_percent'
+  | 'cgst_amount'
+  | 'sgst_percent'
+  | 'sgst_amount'
+  | 'igst_percent'
+  | 'igst_amount'
   | 'transport_charges'
   | 'grand_total'
   | 'notes'
@@ -134,9 +152,21 @@ export class quotations
 
   sub_total?: number;
 
-  discount?: number;
+  discount_percent?: number;
 
-  gst_total?: number;
+  discount_amount?: number;
+
+  cgst_percent?: number;
+
+  cgst_amount?: number;
+
+  sgst_percent?: number;
+
+  sgst_amount?: number;
+
+  igst_percent?: number;
+
+  igst_amount?: number;
 
   transport_charges?: number;
 
@@ -255,6 +285,7 @@ export class quotations
             'APPROVED',
             'REJECTED',
             'EXPIRED',
+            'DELETED',
           ),
           allowNull: true,
           defaultValue: 'DRAFT',
@@ -266,16 +297,52 @@ export class quotations
           defaultValue: 0,
         },
 
-        discount: {
-          type: DataTypes.DECIMAL(12, 2),
+        discount_percent: {
+          type: DataTypes.DECIMAL(5, 2),
           allowNull: true,
-          defaultValue: 0,
+          defaultValue: 0.00,
         },
 
-        gst_total: {
+        discount_amount: {
           type: DataTypes.DECIMAL(12, 2),
           allowNull: true,
-          defaultValue: 0,
+          defaultValue: 0.00,
+        },
+
+        cgst_percent: {
+          type: DataTypes.DECIMAL(5, 2),
+          allowNull: true,
+          defaultValue: 0.00,
+        },
+
+        cgst_amount: {
+          type: DataTypes.DECIMAL(12, 2),
+          allowNull: true,
+          defaultValue: 0.00,
+        },
+
+        sgst_percent: {
+          type: DataTypes.DECIMAL(5, 2),
+          allowNull: true,
+          defaultValue: 0.00,
+        },
+
+        sgst_amount: {
+          type: DataTypes.DECIMAL(12, 2),
+          allowNull: true,
+          defaultValue: 0.00,
+        },
+
+        igst_percent: {
+          type: DataTypes.DECIMAL(5, 2),
+          allowNull: true,
+          defaultValue: 0.00,
+        },
+
+        igst_amount: {
+          type: DataTypes.DECIMAL(12, 2),
+          allowNull: true,
+          defaultValue: 0.00,
         },
 
         transport_charges: {

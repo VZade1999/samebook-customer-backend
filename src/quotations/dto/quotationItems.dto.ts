@@ -21,7 +21,7 @@ export class QuotationItemDto {
   @IsString()
   hsn_code?: string;
 
-  @IsOptional()
+ @IsOptional()
   @IsString()
   unit?: string;
 
@@ -34,17 +34,11 @@ export class QuotationItemDto {
   @Type(() => Number)
   rate: number;
 
-  @IsOptional()
-  @IsNumber()
-  @Type(() => Number)
-  gst_percent?: number;
 
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
   discount_percent?: number;
 
-  @IsNumber()
-  @Type(() => Number)
-  amount: number;
+  // `amount`, `discount_amount`, `discounted_rate`, and `total` are computed by the server.
 }

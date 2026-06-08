@@ -305,18 +305,18 @@ export class QuotationService {
     unit?: string;
     qty?: number;
     rate?: number;
-    gst_percent?: number;
     discount_percent?: number;
-    amount: number;
+    discount_amount?: number;
+    discounted_rate?: number;
+    total: number;
   }> {
     return items.map((item) => {
       const lineSubtotal = Number((item.qty || 0) * (item.rate || 0));
       const lineDiscount = Number(
         ((item.discount_percent ?? 0) / 100) * lineSubtotal,
       );
-      const taxable = Number(lineSubtotal - lineDiscount);
-      const lineGst = Number(((item.gst_percent ?? 0) / 100) * taxable);
-      const lineAmount = Number(taxable + lineGst);
+      const discountedLineTotal = Number(lineSubtotal - lineDiscount);
+      const discountedRate = item.qty && item.qty > 0 ? discountedLineTotal / item.qty : 0;
 
       return {
         quotation_id: quotationId,
@@ -326,9 +326,10 @@ export class QuotationService {
         unit: item.unit,
         qty: item.qty,
         rate: item.rate,
-        gst_percent: item.gst_percent,
         discount_percent: item.discount_percent,
-        amount: Number(lineAmount.toFixed(2)),
+        discount_amount: Number(lineDiscount.toFixed(2)),
+        discounted_rate: Number(discountedRate.toFixed(2)),
+        total: Number(discountedLineTotal.toFixed(2)),
       };
     });
   }
@@ -348,25 +349,25 @@ export class QuotationService {
       return sum + ((item.discount_percent ?? 0) / 100) * lineSubtotal;
     }, 0);
 
-    const gstTotal = items.reduce((sum, item) => {
-      const lineSubtotal = (item.qty || 0) * (item.rate || 0);
-      const lineDiscount = ((item.discount_percent ?? 0) / 100) * lineSubtotal;
-      const taxable = lineSubtotal - lineDiscount;
-      return sum + ((item.gst_percent ?? 0) / 100) * taxable;
-    }, 0);
-
+    // No per-item GST in the schema; GST totals are zero.
     const overallDisc = Number(overallDiscount ?? 0);
     const transport = Number(transportCharges ?? 0);
 
     const totalDiscount = Number((itemDiscountTotal + overallDisc).toFixed(2));
-    const totalGst = Number(gstTotal.toFixed(2));
+    const discountPercent = subTotal > 0 ? (totalDiscount / subTotal) * 100 : 0;
 
-    const grandTotal = Number((subTotal - totalDiscount + totalGst + transport).toFixed(2));
+    const grandTotal = Number((subTotal - totalDiscount + transport).toFixed(2));
 
     return {
       sub_total: Number(subTotal.toFixed(2)),
-      discount: totalDiscount,
-      gst_total: totalGst,
+      discount_percent: Number(discountPercent.toFixed(2)),
+      discount_amount: totalDiscount,
+      cgst_percent: 0,
+      cgst_amount: 0,
+      sgst_percent: 0,
+      sgst_amount: 0,
+      igst_percent: 0,
+      igst_amount: 0,
       transport_charges: transport,
       grand_total: grandTotal,
     };
@@ -378,7 +379,7 @@ export class QuotationService {
     // compute totals from items to avoid trusting client calculations
     const totals = this.computeTotalsFromItems(
       data.items || [],
-      data.discount,
+      data.discount_amount,
       data.transport_charges,
     );
 
@@ -397,8 +398,14 @@ export class QuotationService {
         : undefined,
       status: 'DRAFT',
       sub_total: totals.sub_total,
-      discount: totals.discount,
-      gst_total: totals.gst_total,
+      discount_percent: totals.discount_percent,
+      discount_amount: totals.discount_amount,
+      cgst_percent: totals.cgst_percent,
+      cgst_amount: totals.cgst_amount,
+      sgst_percent: totals.sgst_percent,
+      sgst_amount: totals.sgst_amount,
+      igst_percent: totals.igst_percent,
+      igst_amount: totals.igst_amount,
       transport_charges: totals.transport_charges,
       grand_total: totals.grand_total,
       notes: data.notes,
@@ -407,25 +414,15 @@ export class QuotationService {
       created_by: data.user_id,
       updated_by: data.user_id,
       contact_person_id: data.contact_person_id,
-
       billing_address_id: data.billing_address_id,
-
       shipping_address_id: data.shipping_address_id,
-
       customer_name: data.customer_name,
-
       customer_type: data.customer_type as 'INDIVIDUAL' | 'BUSINESS',
-
       customer_gst_number: data.customer_gst_number,
-
       contact_person_name: data.contact_person_name,
-
       contact_person_email: data.contact_person_email,
-
       contact_person_phone: data.contact_person_phone,
-
       billing_address_snapshot: data.billing_address_snapshot,
-
       shipping_address_snapshot: data.shipping_address_snapshot,
     };
   }
@@ -869,14 +866,20 @@ export class QuotationService {
       if (shouldRecalcTotals) {
         const totals = this.computeTotalsFromItems(
           data.items,
-          data.discount,
+          data.discount_amount,
           data.transport_charges,
         );
 
         Object.assign(updatePayload, {
           sub_total: totals.sub_total,
-          discount: totals.discount,
-          gst_total: totals.gst_total,
+          discount_percent: totals.discount_percent,
+          discount_amount: totals.discount_amount,
+          cgst_percent: totals.cgst_percent,
+          cgst_amount: totals.cgst_amount,
+          sgst_percent: totals.sgst_percent,
+          sgst_amount: totals.sgst_amount,
+          igst_percent: totals.igst_percent,
+          igst_amount: totals.igst_amount,
           transport_charges: totals.transport_charges,
           grand_total: totals.grand_total,
         });

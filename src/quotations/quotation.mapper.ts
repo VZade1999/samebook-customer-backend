@@ -97,12 +97,36 @@ export class QuotationMapper {
         sub_total: data.sub_total,
       }),
 
-      ...(data.discount !== undefined && {
-        discount: data.discount,
+      ...(data.discount_percent !== undefined && {
+        discount_percent: data.discount_percent,
       }),
 
-      ...(data.gst_total !== undefined && {
-        gst_total: data.gst_total,
+      ...(data.discount_amount !== undefined && {
+        discount_amount: data.discount_amount,
+      }),
+
+      ...(data.cgst_percent !== undefined && {
+        cgst_percent: data.cgst_percent,
+      }),
+
+      ...(data.cgst_amount !== undefined && {
+        cgst_amount: data.cgst_amount,
+      }),
+
+      ...(data.sgst_percent !== undefined && {
+        sgst_percent: data.sgst_percent,
+      }),
+
+      ...(data.sgst_amount !== undefined && {
+        sgst_amount: data.sgst_amount,
+      }),
+
+      ...(data.igst_percent !== undefined && {
+        igst_percent: data.igst_percent,
+      }),
+
+      ...(data.igst_amount !== undefined && {
+        igst_amount: data.igst_amount,
       }),
 
       ...(data.transport_charges !== undefined && {

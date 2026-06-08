@@ -69,12 +69,42 @@ shipping_address_id?: number;
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
-  discount?: number;
+  discount_percent?: number;
 
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
-  gst_total?: number;
+  discount_amount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cgst_percent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  cgst_amount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  sgst_percent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  sgst_amount?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  igst_percent?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  igst_amount?: number;
 
   @IsOptional()
   @IsNumber()

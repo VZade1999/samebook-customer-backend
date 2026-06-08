@@ -19,11 +19,13 @@ export interface quotationItemsAttributes {
 
   rate?: number;
 
-  gst_percent?: number;
-
   discount_percent?: number;
 
-  amount?: number;
+  discount_amount?: number;
+
+  discounted_rate?: number;
+
+  total?: number;
 
   created_at?: Date;
 }
@@ -35,9 +37,10 @@ export type quotationItemsOptionalAttributes =
   | 'qty'
   | 'unit'
   | 'rate'
-  | 'gst_percent'
   | 'discount_percent'
-  | 'amount'
+  | 'discount_amount'
+  | 'discounted_rate'
+  | 'total'
   | 'created_at';
 
 export type quotationItemsCreationAttributes =
@@ -69,11 +72,13 @@ export class quotation_items
 
   rate?: number;
 
-  gst_percent?: number;
-
   discount_percent?: number;
 
-  amount?: number;
+  discount_amount?: number;
+
+  discounted_rate?: number;
+
+  total?: number;
 
   created_at?: Date;
 
@@ -126,22 +131,28 @@ export class quotation_items
           defaultValue: 0,
         },
 
-        gst_percent: {
-          type: DataTypes.DECIMAL(5, 2),
-          allowNull: true,
-          defaultValue: 0,
-        },
-
         discount_percent: {
           type: DataTypes.DECIMAL(5, 2),
           allowNull: true,
-          defaultValue: 0,
+          defaultValue: 0.0,
         },
 
-        amount: {
+        discount_amount: {
           type: DataTypes.DECIMAL(12, 2),
           allowNull: true,
-          defaultValue: 0,
+          defaultValue: 0.0,
+        },
+
+        discounted_rate: {
+          type: DataTypes.DECIMAL(12, 2),
+          allowNull: true,
+          defaultValue: 0.0,
+        },
+
+        total: {
+          type: DataTypes.DECIMAL(12, 2),
+          allowNull: true,
+          defaultValue: 0.0,
         },
 
         created_at: {
