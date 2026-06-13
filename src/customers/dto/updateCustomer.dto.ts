@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -39,6 +40,9 @@ export class UpdateCustomerContactDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'Phone number must be a valid Indian phone number (10 digits starting with 6-9)',
+  })
   phone?: string;
 
   @IsOptional()

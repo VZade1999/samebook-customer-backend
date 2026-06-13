@@ -438,6 +438,7 @@ export class QuotationService {
       contact_person_phone: data.contact_person_phone,
       billing_address_snapshot: data.billing_address_snapshot,
       shipping_address_snapshot: data.shipping_address_snapshot,
+      business_details_snapshot: data.business_details_snapshot,
     };
   }
 

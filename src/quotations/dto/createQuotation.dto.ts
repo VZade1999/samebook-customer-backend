@@ -166,6 +166,9 @@ contact_person_email?: string;
 contact_person_phone?: string;
 
 @IsOptional()
+business_details_snapshot?: any;
+
+@IsOptional()
 billing_address_snapshot?: any;
 
 @IsOptional()

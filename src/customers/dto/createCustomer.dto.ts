@@ -10,6 +10,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
   MinLength,
@@ -42,6 +43,9 @@ export class CreateCustomerContactDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
+  @Matches(/^[6-9]\d{9}$/, {
+    message: 'Phone number must be a valid Indian phone number (10 digits starting with 6-9)',
+  })
   phone?: string;
 
   @IsOptional()
@@ -81,35 +85,35 @@ export class CreateCustomerAddressDto {
   @MaxLength(50)
   gst_number?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(255)
-  address_line_1: string;
+  address_line_1?: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(255)
   address_line_2?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  city: string;
+  city?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  state: string;
+  state?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  country: string;
+  country?: string;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
   @MaxLength(20)
-  postal_code: string;
+  postal_code?: string;
 
   @IsOptional()
   @Type(() => Number)

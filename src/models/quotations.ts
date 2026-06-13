@@ -75,6 +75,8 @@ export interface quotationsAttributes {
 
   shipping_address_snapshot?: object;
 
+  business_details_snapshot?: object;
+
   customer_gst_number?: string;
   document_type?: string;
   daily_sequence?: number;
@@ -120,6 +122,7 @@ export type quotationsOptionalAttributes =
   | 'contact_person_phone'
   | 'billing_address_snapshot'
   | 'shipping_address_snapshot'
+  | 'business_details_snapshot'
   | 'customer_gst_number'
   | 'document_type'
   | 'daily_sequence'
@@ -204,6 +207,8 @@ export class quotations
   billing_address_snapshot?: object;
 
   shipping_address_snapshot?: object;
+
+  business_details_snapshot?: object;
 
   customer_gst_number?: string;
   document_type?: string;
@@ -427,6 +432,10 @@ export class quotations
         },
 
         shipping_address_snapshot: {
+          type: DataTypes.JSON,
+          allowNull: true,
+        },
+        business_details_snapshot: {
           type: DataTypes.JSON,
           allowNull: true,
         },

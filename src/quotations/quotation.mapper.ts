@@ -69,6 +69,19 @@ export class QuotationMapper {
         })(),
       }),
 
+      ...(data.business_details_snapshot !== undefined && {
+        business_details_snapshot: (() => {
+          try {
+            if (typeof data.business_details_snapshot === 'string') {
+              return JSON.parse(data.business_details_snapshot);
+            }
+            return data.business_details_snapshot ?? null;
+          } catch (e) {
+            return null;
+          }
+        })(),
+      }),
+
       ...(data.quotation_date && {
         quotation_date: new Date(data.quotation_date),
       }),
