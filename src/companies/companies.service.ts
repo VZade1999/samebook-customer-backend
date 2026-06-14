@@ -4,6 +4,7 @@ import { companies } from 'src/models/companies';
 import { company_addresses } from 'src/models/company_addresses';
 import { company_locations } from 'src/models/company_locations';
 import { company_metadata } from 'src/models/company_metadata';
+import { company_bank_accounts } from 'src/models/company_bank_accounts';
 import { Op } from 'sequelize';
 import { CreateCompanyDto } from './dto/createCompany.dto';
 import { CompaniesListDto } from './companies-list.dto';
@@ -14,6 +15,7 @@ export class CompanyService {
   private readonly CompanyAddresses: typeof company_addresses;
   private readonly CompanyLocations: typeof company_locations;
   private readonly CompanyMetadata: typeof company_metadata;
+  private readonly CompanyBankAccounts: typeof company_bank_accounts;
 
   constructor(
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
@@ -23,6 +25,7 @@ export class CompanyService {
     this.CompanyAddresses = this.dbProvider.db.company_addresses;
     this.CompanyLocations = this.dbProvider.db.company_locations;
     this.CompanyMetadata = this.dbProvider.db.company_metadata;
+    this.CompanyBankAccounts = this.dbProvider.db.company_bank_accounts;
   }
 
   // Normalize the prefix to uppercase alphanumeric characters and enforce a 10-character maximum.
@@ -157,6 +160,28 @@ export class CompanyService {
       }
     }
 
+    if (data.bank_accounts?.length) {
+      try {
+        await this.CompanyBankAccounts.bulkCreate(
+          data.bank_accounts.map((account) => ({
+            company_id: company.id,
+            bank_name: account.bank_name,
+            account_holder_name: account.account_holder_name,
+            account_number: account.account_number,
+            ifsc_code: account.ifsc_code,
+            branch_name: account.branch_name,
+            branch_address: account.branch_address,
+            account_type: account.account_type,
+            notes: account.notes,
+            is_default: account.is_default ? 1 : 0,
+          })),
+        );
+      } catch (err) {
+        log.error('DB error while creating company bank accounts', err);
+        throw new Error('DATABASE_ERROR');
+      }
+    }
+
     log.enrich({ companyId: company.id }).info('Company created successfully');
 
     return {
@@ -195,6 +220,7 @@ export class CompanyService {
           { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
           { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
           { model: this.CompanyMetadata, as: 'metadata', where: { is_active: 1 }, required: false },
+          { model: this.CompanyBankAccounts, as: 'bank_accounts', where: { is_active: 1 }, required: false },
         ],
         distinct: true,
       });
@@ -239,6 +265,7 @@ export class CompanyService {
           { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
           { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
           { model: this.CompanyMetadata, as: 'metadata', where: { is_active: 1 }, required: false },
+          { model: this.CompanyBankAccounts, as: 'bank_accounts', where: { is_active: 1 }, required: false },
         ],
       });
     } catch (err) {
@@ -350,6 +377,14 @@ export class CompanyService {
       const metadataToDelete = existingMetadataIds.filter((mid: number) => !incomingMetadataIds.includes(mid));
       if (metadataToDelete.length) {
         await this.CompanyMetadata.update({ is_active: 0 }, { where: { id: metadataToDelete } });
+      }
+
+      const existingBankAccounts = await this.CompanyBankAccounts.findAll({ where: { company_id: id, is_active: 1 }, attributes: ['id'] });
+      const existingBankAccountIds = existingBankAccounts.map((b: any) => b.id);
+      const incomingBankAccountIds = (data.bank_accounts || []).map((b: any) => b.id).filter(Boolean);
+      const bankAccountsToDelete = existingBankAccountIds.filter((bid: number) => !incomingBankAccountIds.includes(bid));
+      if (bankAccountsToDelete.length) {
+        await this.CompanyBankAccounts.update({ is_active: 0 }, { where: { id: bankAccountsToDelete } });
       }
     } catch (err) {
       log.error('DB error while cleaning up nested records', err);
@@ -483,6 +518,49 @@ export class CompanyService {
       }
     }
 
+    if (data.bank_accounts?.length) {
+      try {
+        for (const account of data.bank_accounts) {
+          const bankAccountPayload = this.cleanPayload({
+            company_id: id,
+            bank_name: account.bank_name,
+            account_holder_name: account.account_holder_name,
+            account_number: account.account_number,
+            ifsc_code: account.ifsc_code,
+            branch_name: account.branch_name,
+            branch_address: account.branch_address,
+            account_type: account.account_type,
+            notes: account.notes,
+            is_default:
+              account.is_default !== undefined
+                ? account.is_default
+                  ? 1
+                  : 0
+                : undefined,
+            ...(account.id ? { is_active: 1 } : {}),
+          });
+
+          if (account.id) {
+            const existingBankAccount = await this.CompanyBankAccounts.findOne({
+              where: { id: account.id, company_id: id },
+            });
+            if (existingBankAccount) {
+              await existingBankAccount.update(bankAccountPayload);
+              continue;
+            }
+          }
+
+          await this.CompanyBankAccounts.create(bankAccountPayload);
+        }
+      } catch (err) {
+        log.error('DB error while updating company bank accounts', err, {
+          mysqlError: (err as any)?.original?.message ?? (err as any)?.message,
+          sql: (err as any)?.sql,
+        });
+        throw new Error('DATABASE_ERROR');
+      }
+    }
+
     log.info('Company updated successfully');
     return {
       success: true,
@@ -516,6 +594,7 @@ export class CompanyService {
       await this.CompanyAddresses.update({ is_active: 0 }, { where: { company_id: id } });
       await this.CompanyLocations.update({ is_active: 0 }, { where: { company_id: id } });
       await this.CompanyMetadata.update({ is_active: 0 }, { where: { company_id: id } });
+      await this.CompanyBankAccounts.update({ is_active: 0 }, { where: { company_id: id } });
     } catch (err) {
       log.error('DB error while deleting company', err);
       throw new Error('DATABASE_ERROR');

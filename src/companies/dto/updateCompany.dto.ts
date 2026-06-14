@@ -11,6 +11,7 @@ import {
 import { CreateCompanyAddressDto } from './createCompanyAddress.dto';
 import { CreateCompanyLocationDto } from './createCompanyLocation.dto';
 import { CreateCompanyMetadataDto } from './createCompanyMetadata.dto';
+import { CreateCompanyBankAccountDto } from './createCompanyBankAccount.dto';
 
 export class UpdateCompanyDto {
   @IsOptional()
@@ -72,4 +73,10 @@ export class UpdateCompanyDto {
   @ValidateNested({ each: true })
   @Type(() => CreateCompanyMetadataDto)
   metadata?: CreateCompanyMetadataDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateCompanyBankAccountDto)
+  bank_accounts?: CreateCompanyBankAccountDto[];
 }

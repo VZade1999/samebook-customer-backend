@@ -153,6 +153,15 @@ import type {
   customer_addressesCreationAttributes,
 } from './customer_addresses';
 
+import {
+  company_bank_accounts as _company_bank_accounts,
+  company_bank_accounts,
+} from './company_bank_accounts';
+import type {
+  company_bank_accountsAttributes,
+  company_bank_accountsCreationAttributes,
+} from './company_bank_accounts';
+
 export {
   _users as users,
   _roles as roles,
@@ -171,6 +180,7 @@ export {
   _company_addresses as company_addresses,
   _company_locations as company_locations,
   _company_metadata as company_metadata,
+  _company_bank_accounts as company_bank_accounts,
   _quotation_items as quotation_items,
   _quotation_versions as quotation_versions,
   _customer_contacts as customer_contacts,
@@ -194,6 +204,7 @@ export type {
   company_addressesAttributes,
   company_locationsAttributes,
   company_metadataAttributes,
+  company_bank_accountsAttributes,
   quotationItemsAttributes,
   quotationVersionsAttributes,
   customer_contactsAttributes,
@@ -213,6 +224,7 @@ export function initModels(sequelize: Sequelize) {
   const company_addresses = _company_addresses.initModel(sequelize);
   const company_locations = _company_locations.initModel(sequelize);
   const company_metadata = _company_metadata.initModel(sequelize);
+  const company_bank_accounts = _company_bank_accounts.initModel(sequelize);
   const quotations = _quotations.initModel(sequelize);
   const quotation_items = _quotation_items.initModel(sequelize);
   const quotation_versions = _quotation_versions.initModel(sequelize);
@@ -436,6 +448,15 @@ export function initModels(sequelize: Sequelize) {
     foreignKey: 'company_id',
   });
 
+  companies.hasMany(company_bank_accounts, {
+    as: 'bank_accounts',
+    foreignKey: 'company_id',
+  });
+  company_bank_accounts.belongsTo(companies, {
+    as: 'company',
+    foreignKey: 'company_id',
+  });
+
   company_addresses.hasMany(company_locations, {
     as: 'locations',
     foreignKey: 'address_id',
@@ -559,6 +580,7 @@ export function initModels(sequelize: Sequelize) {
     company_addresses,
     company_locations,
     company_metadata,
+    company_bank_accounts,
     quotations,
     quotation_items,
     quotation_versions,
