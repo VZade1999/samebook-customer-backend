@@ -7,6 +7,7 @@ import { ProductModule } from './products/products.module';
 import { QuotationModule } from './quotations/quotations.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { CompanyModule } from './companies/companies.module';
+import { UsersModule } from './users/users.module';
 
 //import { AppController } from './app.controller';
 //import { AppService } from './app.service';
@@ -25,6 +26,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     CompanyModule,
     ProductModule,
     QuotationModule,
+    UsersModule,
     DatabaseModule,
     LoggerModule,
     AiAgentModule
