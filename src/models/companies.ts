@@ -13,6 +13,7 @@ export interface companiesAttributes {
   primary_email?: string;
   primary_phone?: string;
   status?: string;
+  default_terms_conditions?: string;
   is_active?: number;
   created_at?: Date;
   updated_at?: Date;
@@ -31,6 +32,7 @@ export type companiesOptionalAttributes =
   | 'primary_email'
   | 'primary_phone'
   | 'status'
+  | 'default_terms_conditions'
   | 'is_active'
   | 'created_at'
   | 'updated_at';
@@ -54,6 +56,7 @@ export class companies
   primary_email?: string;
   primary_phone?: string;
   status?: string;
+  default_terms_conditions?: string;
   is_active?: number;
   created_at?: Date;
   updated_at?: Date;
@@ -113,6 +116,10 @@ export class companies
           type: DataTypes.STRING(50),
           allowNull: true,
           defaultValue: 'active',
+        },
+        default_terms_conditions: {
+          type: DataTypes.TEXT,
+          allowNull: true,
         },
         is_active: {
           type: DataTypes.TINYINT,

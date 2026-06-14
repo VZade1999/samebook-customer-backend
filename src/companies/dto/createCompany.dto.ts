@@ -58,6 +58,10 @@ export class CreateCompanyDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  default_terms_conditions?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateCompanyAddressDto)

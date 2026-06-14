@@ -80,6 +80,7 @@ export class CompanyService {
         industry: data.industry,
         primary_email: data.primary_email,
         primary_phone: data.primary_phone,
+        default_terms_conditions: data.default_terms_conditions,
         status: data.status ?? 'active',
       });
     } catch (err) {
@@ -342,6 +343,9 @@ export class CompanyService {
         ...(data.industry !== undefined && { industry: data.industry }),
         ...(data.primary_email !== undefined && { primary_email: data.primary_email }),
         ...(data.primary_phone !== undefined && { primary_phone: data.primary_phone }),
+        ...(data.default_terms_conditions !== undefined && {
+          default_terms_conditions: data.default_terms_conditions,
+        }),
         ...(data.status !== undefined && { status: data.status }),
       }));
     } catch (err) {
