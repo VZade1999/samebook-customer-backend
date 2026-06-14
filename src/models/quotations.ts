@@ -77,6 +77,8 @@ export interface quotationsAttributes {
 
   business_details_snapshot?: object;
 
+  payment_details_snapshot?: object;
+
   customer_gst_number?: string;
   document_type?: string;
   daily_sequence?: number;
@@ -123,6 +125,7 @@ export type quotationsOptionalAttributes =
   | 'billing_address_snapshot'
   | 'shipping_address_snapshot'
   | 'business_details_snapshot'
+  | 'payment_details_snapshot'
   | 'customer_gst_number'
   | 'document_type'
   | 'daily_sequence'
@@ -209,6 +212,8 @@ export class quotations
   shipping_address_snapshot?: object;
 
   business_details_snapshot?: object;
+
+  payment_details_snapshot?: object;
 
   customer_gst_number?: string;
   document_type?: string;
@@ -436,6 +441,10 @@ export class quotations
           allowNull: true,
         },
         business_details_snapshot: {
+          type: DataTypes.JSON,
+          allowNull: true,
+        },
+        payment_details_snapshot: {
           type: DataTypes.JSON,
           allowNull: true,
         },

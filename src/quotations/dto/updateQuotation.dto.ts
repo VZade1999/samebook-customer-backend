@@ -172,5 +172,9 @@ contact_person_email?: string;
   @IsNumber()
   @Type(() => Number)
   overall_sequence?: number;
+
+  @IsOptional()
+  @IsString()
+  payment_details_snapshot?: string;
 }
 

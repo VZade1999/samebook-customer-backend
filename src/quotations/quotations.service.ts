@@ -439,6 +439,21 @@ export class QuotationService {
       billing_address_snapshot: data.billing_address_snapshot,
       shipping_address_snapshot: data.shipping_address_snapshot,
       business_details_snapshot: data.business_details_snapshot,
+      payment_details_snapshot: (() => {
+        if (data.payment_details_snapshot === undefined || data.payment_details_snapshot === null) {
+          return undefined;
+        }
+
+        if (typeof data.payment_details_snapshot === 'string') {
+          try {
+            return JSON.parse(data.payment_details_snapshot);
+          } catch {
+            return data.payment_details_snapshot;
+          }
+        }
+
+        return data.payment_details_snapshot;
+      })(),
     };
   }
 

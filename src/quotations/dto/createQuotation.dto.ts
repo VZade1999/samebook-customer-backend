@@ -173,4 +173,8 @@ billing_address_snapshot?: any;
 
 @IsOptional()
 shipping_address_snapshot?: any;
+
+@IsOptional()
+@IsString()
+payment_details_snapshot?: string;
 }
