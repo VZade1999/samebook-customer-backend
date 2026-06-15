@@ -289,6 +289,7 @@ export class CompanyService {
     try {
       company = await this.Companies.findOne({
         where: { id, is_active: 1 },
+        attributes: { exclude: ['logo'] },
         include: [
           { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
           { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
