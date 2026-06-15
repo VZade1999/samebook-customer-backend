@@ -14,6 +14,7 @@ export interface companiesAttributes {
   primary_phone?: string;
   status?: string;
   default_terms_conditions?: string;
+  logo?: Buffer;
   is_active?: number;
   created_at?: Date;
   updated_at?: Date;
@@ -33,6 +34,7 @@ export type companiesOptionalAttributes =
   | 'primary_phone'
   | 'status'
   | 'default_terms_conditions'
+  | 'logo'
   | 'is_active'
   | 'created_at'
   | 'updated_at';
@@ -57,6 +59,7 @@ export class companies
   primary_phone?: string;
   status?: string;
   default_terms_conditions?: string;
+  logo?: Buffer;
   is_active?: number;
   created_at?: Date;
   updated_at?: Date;
@@ -119,6 +122,10 @@ export class companies
         },
         default_terms_conditions: {
           type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        logo: {
+          type: DataTypes.BLOB('medium'),
           allowNull: true,
         },
         is_active: {

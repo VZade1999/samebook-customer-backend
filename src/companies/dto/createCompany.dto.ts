@@ -59,6 +59,10 @@ export class CreateCompanyDto {
 
   @IsOptional()
   @IsString()
+  logo?: string;
+
+  @IsOptional()
+  @IsString()
   default_terms_conditions?: string;
 
   @IsOptional()

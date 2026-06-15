@@ -51,6 +51,26 @@ export class CompanyService {
     return true;
   }
 
+  private parseBase64Logo(logo?: string): Buffer | undefined {
+    if (!logo) {
+      return undefined;
+    }
+
+    const trimmed = logo.trim();
+    const matches = trimmed.match(/^data:image\/png;base64,(.+)$/);
+    const base64Data = matches ? matches[1] : trimmed;
+
+    if (!base64Data || !/^[A-Za-z0-9+/=]+$/.test(base64Data)) {
+      return undefined;
+    }
+
+    try {
+      return Buffer.from(base64Data, 'base64');
+    } catch {
+      return undefined;
+    }
+  }
+
   async createCompany(data: CreateCompanyDto) {
     const log = this.appLogger.forContext('CompanyService', 'createCompany', {
       companyName: data.name,
@@ -68,6 +88,11 @@ export class CompanyService {
       return { success: false, message: 'Company prefix already exists' };
     }
 
+    const logoBuffer = this.parseBase64Logo(data.logo);
+    if (data.logo !== undefined && data.logo !== null && !logoBuffer) {
+      return { success: false, message: 'Invalid PNG logo data' };
+    }
+
     let company: companies;
     try {
       company = await this.Companies.create({
@@ -82,6 +107,7 @@ export class CompanyService {
         primary_phone: data.primary_phone,
         default_terms_conditions: data.default_terms_conditions,
         status: data.status ?? 'active',
+        logo: this.parseBase64Logo(data.logo),
       });
     } catch (err) {
       const error = err as any;
@@ -213,6 +239,7 @@ export class CompanyService {
     let result: { rows: companies[]; count: number };
     try {
       result = await this.Companies.findAndCountAll({
+        attributes: { exclude: ['logo'] },
         where: whereClause,
         limit,
         offset,
@@ -280,10 +307,18 @@ export class CompanyService {
     }
 
     log.info('Company details fetched successfully');
+
+    const jsonCompany = company.toJSON() as any;
+    if (jsonCompany.logo && Buffer.isBuffer(jsonCompany.logo)) {
+      jsonCompany.logo = `data:image/png;base64,${jsonCompany.logo.toString('base64')}`;
+    }
+
+    console.log('Fetched company details:', jsonCompany)
+
     return {
       success: true,
       message: 'Company details fetched successfully',
-      data: company,
+      data: jsonCompany,
     };
   }
 
@@ -330,6 +365,20 @@ export class CompanyService {
       data.company_prefix = normalizedPrefix;
     }
 
+    // Prepare logo update value: undefined = don't touch, null = clear, Buffer = new logo
+    let logoUpdateValue: Buffer | null | undefined = undefined;
+    if (data.logo !== undefined) {
+      if (data.logo === null || data.logo === '') {
+        logoUpdateValue = null; // explicit clear
+      } else {
+        const parsed = this.parseBase64Logo(data.logo as any);
+        if (!parsed) {
+          return { success: false, message: 'Invalid PNG logo data' };
+        }
+        logoUpdateValue = parsed;
+      }
+    }
+
     try {
       await company.update(this.cleanPayload({
         ...(data.name !== undefined && { name: data.name }),
@@ -347,6 +396,7 @@ export class CompanyService {
           default_terms_conditions: data.default_terms_conditions,
         }),
         ...(data.status !== undefined && { status: data.status }),
+        ...(data.logo !== undefined && { logo: logoUpdateValue }),
       }));
     } catch (err) {
       log.error('DB error while updating company', err);

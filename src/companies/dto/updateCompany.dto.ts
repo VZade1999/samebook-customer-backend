@@ -58,6 +58,10 @@ export class UpdateCompanyDto {
 
   @IsOptional()
   @IsString()
+  logo?: string;
+
+  @IsOptional()
+  @IsString()
   default_terms_conditions?: string;
 
   @IsOptional()
