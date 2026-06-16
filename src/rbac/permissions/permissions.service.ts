@@ -53,7 +53,7 @@ export class PermissionsService {
           },
         ];
       }
-
+console.log('permissions')
       const { count, rows } =
         await this.db.db.permission.findAndCountAll({
           where,
@@ -61,12 +61,13 @@ export class PermissionsService {
           offset,
           order: [['name', 'ASC']],
         });
-
+console.log(rows,'permissions')
       return {
         permissions: rows.map(
           (permission: any) => ({
             id: permission.id,
             name: permission.name,
+            module_name: permission.module_name,
             description:
               permission.description,
             created_at:

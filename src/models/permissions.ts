@@ -4,6 +4,7 @@ import { DataTypes, Model, Optional } from 'sequelize';
 export interface permissionsAttributes {
   id: number;
   name: string;
+  module_name?: string;
   description?: string;
   created_at?: Date;
 }
@@ -24,6 +25,7 @@ export class permissions
 {
   id!: number;
   name!: string;
+  module_name?: string;
   description?: string;
   created_at?: Date;
 
@@ -42,6 +44,10 @@ export class permissions
           allowNull: false,
           unique: true,
         },
+        module_name: {
+          type: DataTypes.STRING(100),
+          allowNull: true,
+        },  
 
         description: {
           type: DataTypes.TEXT,
