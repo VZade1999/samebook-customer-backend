@@ -3,11 +3,13 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { LoggerModule } from 'src/common/logger/logger.module';
 import { AppLogger } from 'src/common/logger/logger.service';
+import { UserRolesController } from './user-roles.controller';
+import { UserRolesService } from './user-roles.service';
 
 @Module({
   imports: [LoggerModule],
-  controllers: [UsersController],
-  providers: [UsersService, AppLogger],
-  exports: [UsersService],
+  controllers: [UsersController, UserRolesController],
+  providers: [UsersService, AppLogger, UserRolesService],
+  exports: [UsersService, UserRolesService],
 })
 export class UsersModule {}

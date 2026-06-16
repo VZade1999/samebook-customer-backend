@@ -7,7 +7,9 @@ import { ProductModule } from './products/products.module';
 import { QuotationModule } from './quotations/quotations.module';
 import { AiAgentModule } from './ai-agent/ai-agent.module';
 import { CompanyModule } from './companies/companies.module';
-import { UsersModule } from './users/users.module';
+import { UsersModule } from './rbac/users/users.module';
+import { RolesModule } from './rbac/roles/roles.module';
+import { PermissionsModule } from './rbac/permissions/permissions.module';
 
 //import { AppController } from './app.controller';
 //import { AppService } from './app.service';
@@ -29,7 +31,9 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     UsersModule,
     DatabaseModule,
     LoggerModule,
-    AiAgentModule
+    AiAgentModule,
+    RolesModule,
+    PermissionsModule,
   ],
   //controllers: [AppController],
   //providers: [AppService],

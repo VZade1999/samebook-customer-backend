@@ -11,6 +11,7 @@ import {
   ParseIntPipe,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { RequirePermissions } from 'src/common/decorators/require-permissions.decorator';
 
 @Controller('users')
 export class UsersController {
@@ -40,6 +41,7 @@ export class UsersController {
   }
 
   @Post('create')
+  @RequirePermissions('users.create')
   async createUser(@Req() req: any, @Body() payload: any) {
     const companyId = req.user?.company_id;
     return this.usersService.createUser(companyId, payload);
