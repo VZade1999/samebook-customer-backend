@@ -1,0 +1,733 @@
+import {
+  Injectable,
+  Inject,
+  BadRequestException,
+} from '@nestjs/common';
+import {Op} from 'sequelize';
+import { AppLogger } from
+  'src/common/logger/logger.service';
+import { InvoiceMapper } from './mapper/invoice.mapper';
+import { LogContext } from 'src/common/logger/logger.context';
+
+@Injectable()
+export class InvoiceService {
+  constructor(
+    @Inject('DATABASE_CONNECTION')
+    private db: any,
+
+    private logger: AppLogger,
+  ) {}
+
+  async generateInvoice(
+  quotationId: number,
+  generatedBy: number,
+) {
+  const ctx = new LogContext(
+    'InvoiceService',
+    'generateInvoice',
+    {
+      quotationId,
+      generatedBy,
+    },
+  );
+
+  const transaction =
+    await this.db.sequelize.transaction();
+
+  try {
+    const quotation =
+      await this.db.db.quotations.findOne({
+        where: {
+          id: quotationId,
+          status: 'APPROVED',
+        
+        },
+        include: [
+          {
+            model:
+              this.db.db.quotation_items,
+            as: 'items',
+          },
+        ],
+      });
+
+    if (!quotation) {
+      throw new BadRequestException(
+        'Approved quotation not found',
+      );
+    }
+
+
+    const existingInvoice =
+      await this.db.db.invoices.findOne({
+        where: {
+          quotation_id: quotation.id,
+        },
+      });
+
+    if (existingInvoice) {
+      throw new BadRequestException(
+        'Invoice already generated',
+      );
+    }
+
+    const today = new Date();
+
+    const datePart =
+      today.getFullYear().toString() +
+      String(
+        today.getMonth() + 1,
+      ).padStart(2, '0') +
+      String(today.getDate()).padStart(
+        2,
+        '0',
+      );
+
+    const count =
+      await this.db.db.invoices.count();
+
+    const overallSequence =
+      count + 1;
+
+    const dailySequence =
+      (
+        await this.db.db.invoices.count({
+          where: {
+            created_at: {
+              [Op.gte]:
+                new Date(
+                  today.setHours(
+                    0,
+                    0,
+                    0,
+                    0,
+                  ),
+                ),
+            },
+          },
+        })
+      ) + 1;
+
+    const invoiceNumber =
+      `INV-${datePart}-${String(
+        dailySequence,
+      ).padStart(4, '0')}`;
+const normalizeJson = (
+  value: any,
+) => {
+  try {
+    return typeof value === 'string'
+      ? JSON.parse(value)
+      : value;
+  } catch {
+    return value;
+  }
+};
+
+quotation.billing_address_snapshot =
+  normalizeJson(
+    quotation.billing_address_snapshot,
+  );
+
+quotation.shipping_address_snapshot =
+  normalizeJson(
+    quotation.shipping_address_snapshot,
+  );
+
+quotation.business_details_snapshot =
+  normalizeJson(
+    quotation.business_details_snapshot,
+  );
+
+quotation.payment_details_snapshot =
+  normalizeJson(
+    quotation.payment_details_snapshot,
+  );
+      
+    const invoicePayload =
+      InvoiceMapper.buildInvoicePayload(
+        quotation,
+        invoiceNumber,
+        {
+          dailySequence,
+          overallSequence,
+        },
+        generatedBy,
+      );
+
+    const invoice =
+      await this.db.db.invoices.create(
+        invoicePayload,
+        {
+          transaction,
+        },
+      );
+
+    if (
+      quotation.items &&
+      quotation.items.length
+    ) {
+      const items =
+        quotation.items.map(
+          (item: any) => ({
+            invoice_id: invoice.id,
+
+            quotation_item_id:
+              item.id,
+
+            product_name:
+              item.product_name,
+
+            description:
+              item.description,
+
+            hsn_code:
+              item.hsn_code,
+
+            qty: item.qty,
+
+            unit: item.unit,
+
+            rate: item.rate,
+
+            discount_percent:
+              item.discount_percent,
+
+            discount_amount:
+              item.discount_amount,
+
+            discounted_rate:
+              item.discounted_rate,
+
+            total: item.total,
+          }),
+        );
+
+      await this.db.db.invoice_items.bulkCreate(
+        items,
+        {
+          transaction,
+        },
+      );
+    }
+
+    await this.db.db.invoice_activity_logs.create(
+      {
+        invoice_id: invoice.id,
+
+        action:
+          'INVOICE_GENERATED',
+
+        changed_by:
+          generatedBy,
+
+        new_value: {
+          quotation_id:
+            quotation.id,
+        },
+      },
+      {
+        transaction,
+      },
+    );
+
+    await transaction.commit();
+
+    return {
+      success: true,
+      message:
+        'Invoice generated successfully',
+      data: invoice,
+    };
+  } catch (error) {
+    await transaction.rollback();
+
+    this.logger.error(
+      ctx,
+      'Generate invoice failed',
+      error,
+    );
+
+    throw error;
+  }
+}
+
+async listInvoices(
+  query: any,
+  companyId: number,
+) {
+  const ctx = new LogContext(
+    'InvoiceService',
+    'listInvoices',
+    {
+      companyId,
+      query,
+    },
+  );
+
+  try {
+    const page = Number(query.page || 1);
+    const limit = Number(query.limit || 10);
+    const offset = (page - 1) * limit;
+
+    const where: any = {
+      company_id: companyId,
+    };
+
+    if (query.search) {
+      where[this.db.Sequelize.Op.or] = [
+        {
+          invoice_number: {
+            [this.db.Sequelize.Op.like]:
+              `%${query.search}%`,
+          },
+        },
+        {
+          customer_name: {
+            [this.db.Sequelize.Op.like]:
+              `%${query.search}%`,
+          },
+        },
+      ];
+    }
+
+    if (query.status) {
+      where.status = query.status;
+    }
+
+    const { rows, count } =
+      await this.db.db.invoices.findAndCountAll(
+        {
+          where,
+
+          limit,
+
+          offset,
+
+          order: [
+            ['created_at', 'DESC'],
+          ],
+        },
+      );
+
+    return {
+      success: true,
+      message:
+        'Invoices fetched successfully',
+
+      data: {
+        rows,
+        pagination: {
+          total: count,
+          page,
+          limit,
+          pages: Math.ceil(
+            count / limit,
+          ),
+        },
+      },
+    };
+  } catch (error) {
+    this.logger.error(
+      ctx,
+      'List invoice failed',
+      error,
+    );
+
+    throw error;
+  }
+}
+
+async getInvoiceDetails(
+  invoiceId: number,
+  companyId: number,
+) {
+  const ctx = new LogContext(
+    'InvoiceService',
+    'getInvoiceDetails',
+    {
+      invoiceId,
+      companyId,
+    },
+  );
+
+  try {
+    const invoice =
+      await this.db.db.invoices.findOne({
+        where: {
+          id: invoiceId,
+          company_id: companyId,
+        },
+
+        include: [
+          {
+            model:
+              this.db.db.invoice_items,
+            as: 'items',
+            required: false,
+          },
+
+          {
+            model:
+              this.db.db.invoice_payments,
+            as: 'payments',
+            required: false,
+          },
+
+          {
+            model:
+              this.db.db.invoice_activity_logs,
+            as: 'activity_logs',
+            required: false,
+          },
+        ],
+      });
+
+    if (!invoice) {
+      throw new BadRequestException(
+        'Invoice not found',
+      );
+    }
+
+    return {
+      success: true,
+      message:
+        'Invoice details fetched successfully',
+
+      data: invoice,
+    };
+  } catch (error) {
+    this.logger.error(
+      ctx,
+      'Get invoice details failed',
+      error,
+    );
+
+    throw error;
+  }
+}
+async addPayment(
+  invoiceId: number,
+  payload: any,
+  companyId: number,
+) {
+  const ctx = new LogContext(
+    'InvoiceService',
+    'addPayment',
+    {
+      invoiceId,
+      companyId,
+    },
+  );
+
+  const transaction =
+    await this.db.sequelize.transaction();
+
+  try {
+    const invoice =
+      await this.db.db.invoices.findOne({
+        where: {
+          id: invoiceId,
+          company_id: companyId,
+        },
+        transaction,
+      });
+
+    if (!invoice) {
+      throw new BadRequestException(
+        'Invoice not found',
+      );
+    }
+
+    const totalPaid =
+      await this.db.db.invoice_payments.sum(
+        'amount',
+        {
+          where: {
+            invoice_id: invoiceId,
+          },
+          transaction,
+        },
+      );
+
+    const alreadyPaid =
+      Number(totalPaid || 0);
+
+    const newTotalPaid =
+      alreadyPaid +
+      Number(payload.amount);
+
+    const invoiceTotal =
+      Number(invoice.grand_total);
+
+    if (newTotalPaid > invoiceTotal) {
+      throw new BadRequestException(
+        'Payment exceeds invoice amount',
+      );
+    }
+
+    await this.db.db.invoice_payments.create(
+      {
+        invoice_id: invoice.id,
+
+        amount: payload.amount,
+
+        payment_method:
+          payload.payment_method,
+
+        transaction_reference:
+          payload.transaction_reference,
+
+        notes: payload.notes,
+
+        received_by:
+          payload.received_by,
+      },
+      { transaction },
+    );
+
+    let status = 'UNPAID';
+
+    if (
+      newTotalPaid > 0 &&
+      newTotalPaid < invoiceTotal
+    ) {
+      status = 'PARTIAL';
+    }
+
+    if (
+      newTotalPaid >= invoiceTotal
+    ) {
+      status = 'PAID';
+    }
+
+    await invoice.update(
+      {
+        paid_amount:
+          newTotalPaid,
+
+        balance_amount:
+          invoiceTotal -
+          newTotalPaid,
+
+        status,
+      },
+      { transaction },
+    );
+if (status === 'PARTIAL') {
+    await this.db.db.invoice_activity_logs.create(
+      {
+        invoice_id: invoice.id,
+
+        action:
+          'INVOICE_PARTIAL',
+
+        changed_by:
+          payload.received_by,
+
+        new_value: {
+          amount:
+            payload.amount,
+
+          payment_method:
+            payload.payment_method,
+        },
+      },
+      { transaction },
+    );
+}
+
+if (status === 'PAID') {
+  await this.db.db.invoice_activity_logs.create(
+    {
+      invoice_id: invoice.id,
+      action: 'INVOICE_PAID',
+      changed_by: payload.received_by,
+    },
+    { transaction },
+  );
+}
+
+    await transaction.commit();
+
+    return {
+      success: true,
+      message:
+        'Payment recorded successfully',
+    };
+  } catch (error) {
+    await transaction.rollback();
+
+    this.logger.error(
+      ctx,
+      'Add payment failed',
+      error,
+    );
+
+    throw error;
+  }
+}
+
+async getInvoiceTimeline(
+  invoiceId: number,
+  companyId: number,
+) {
+  const ctx = new LogContext(
+    'InvoiceService',
+    'getInvoiceTimeline',
+    {
+      invoiceId,
+      companyId,
+    },
+  );
+
+  try {
+    const invoice =
+      await this.db.db.invoices.findOne({
+        where: {
+          id: invoiceId,
+          company_id: companyId,
+        },
+      });
+
+    if (!invoice) {
+      throw new BadRequestException(
+        'Invoice not found',
+      );
+    }
+
+    const logs =
+      await this.db.db.invoice_activity_logs.findAll(
+        {
+          where: {
+            invoice_id: invoiceId,
+          },
+
+          order: [
+            ['created_at', 'DESC'],
+          ],
+        },
+      );
+
+    const timeline = logs.map(
+      (log: any) => ({
+        id: log.id,
+
+        action: log.action,
+
+        old_value:
+          log.old_value,
+
+        new_value:
+          log.new_value,
+
+        changed_by:
+          log.changed_by,
+
+        created_at:
+          log.created_at,
+      }),
+    );
+
+    return {
+      success: true,
+      message:
+        'Invoice timeline fetched successfully',
+      data: timeline,
+    };
+  } catch (error) {
+    this.logger.error(
+      ctx,
+      'Get timeline failed',
+      error,
+    );
+
+    throw error;
+  }
+}
+
+async sendInvoice(
+  invoiceId: number,
+  userId: number,
+  companyId: number,
+) {
+  const ctx = new LogContext(
+    'InvoiceService',
+    'sendInvoice',
+    {
+      invoiceId,
+      userId,
+      companyId,
+    },
+  );
+
+  const transaction =
+    await this.db.sequelize.transaction();
+
+  try {
+    const invoice =
+      await this.db.db.invoices.findOne({
+        where: {
+          id: invoiceId,
+          company_id: companyId,
+        },
+        transaction,
+      });
+
+    if (!invoice) {
+      throw new BadRequestException(
+        'Invoice not found',
+      );
+    }
+
+    if (invoice.status === 'CANCELLED') {
+      throw new BadRequestException(
+        'Cancelled invoice cannot be sent',
+      );
+    }
+
+    if (invoice.status === 'DRAFT') {
+      await invoice.update(
+        {
+          status: 'SENT',
+        },
+        { transaction },
+      );
+    }
+
+    await this.db.db.invoice_activity_logs.create(
+      {
+        invoice_id: invoice.id,
+
+        action: 'INVOICE_SENT',
+
+        changed_by: userId,
+
+        new_value: {
+          invoice_number:
+            invoice.invoice_number,
+        },
+      },
+      { transaction },
+    );
+
+    await transaction.commit();
+
+    return {
+      success: true,
+      message:
+        'Invoice sent successfully',
+    };
+  } catch (error) {
+    await transaction.rollback();
+
+    this.logger.error(
+      ctx,
+      'Send invoice failed',
+      error,
+    );
+
+    throw error;
+  }
+}
+}
