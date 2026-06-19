@@ -28,7 +28,7 @@ export class UpdateCompanyDto {
 
   @IsOptional()
   @IsString()
-  tax_id?: string;
+  gst_no?: string;
 
   @IsOptional()
   @IsString()

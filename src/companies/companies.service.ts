@@ -100,7 +100,7 @@ export class CompanyService {
         company_prefix: normalizedPrefix,
         legal_name: data.legal_name,
         registration_number: data.registration_number,
-        tax_id: data.tax_id,
+        gst_no: data.gst_no,
         website: data.website,
         industry: data.industry,
         primary_email: data.primary_email,
@@ -388,7 +388,7 @@ export class CompanyService {
         ...(data.registration_number !== undefined && {
           registration_number: data.registration_number,
         }),
-        ...(data.tax_id !== undefined && { tax_id: data.tax_id }),
+        ...(data.gst_no !== undefined && { gst_no: data.gst_no }),
         ...(data.website !== undefined && { website: data.website }),
         ...(data.industry !== undefined && { industry: data.industry }),
         ...(data.primary_email !== undefined && { primary_email: data.primary_email }),

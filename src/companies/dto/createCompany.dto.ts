@@ -29,7 +29,7 @@ export class CreateCompanyDto {
 
   @IsOptional()
   @IsString()
-  tax_id?: string;
+  gst_no?: string;
 
   @IsOptional()
   @IsString()
