@@ -83,6 +83,7 @@ export interface quotationsAttributes {
   document_type?: string;
   daily_sequence?: number;
   overall_sequence?: number;
+  has_invoice?: boolean;
 }
 
 export type quotationsPk = 'id';
@@ -129,7 +130,8 @@ export type quotationsOptionalAttributes =
   | 'customer_gst_number'
   | 'document_type'
   | 'daily_sequence'
-  | 'overall_sequence';
+  | 'overall_sequence'
+  | 'has_invoice';
 
 export type quotationsCreationAttributes = Optional<
   quotationsAttributes,
@@ -219,7 +221,7 @@ export class quotations
   document_type?: string;
   daily_sequence?: number;
   overall_sequence?: number;
-
+  has_invoice?: boolean;
   static initModel(sequelize: Sequelize.Sequelize): typeof quotations {
     return quotations.init(
       {
@@ -447,6 +449,11 @@ export class quotations
         payment_details_snapshot: {
           type: DataTypes.JSON,
           allowNull: true,
+        },
+        has_invoice: {
+          type: DataTypes.BOOLEAN,
+          allowNull: true,
+          defaultValue: false,
         },
       },
 

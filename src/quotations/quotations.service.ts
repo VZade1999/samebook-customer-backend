@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { Op, QueryTypes, Transaction, WhereOptions, Includeable } from 'sequelize';
 
 import { AppLogger } from 'src/common/logger/logger.service';
@@ -59,130 +59,12 @@ export class QuotationService {
   ): WhereOptions<quotationsAttributes> {
     const conditions: WhereOptions<quotationsAttributes>[] = [];
 
-    if (query.company_id) {
-      conditions.push({ company_id: query.company_id });
-    }
-
-    if (query.customer_id) {
-      conditions.push({ customer_id: query.customer_id });
-    }
-
     if (query.status) {
       conditions.push({
         status: {
           [Op.like]: `%${query.status}%`,
         },
-      });
-    }
-
-    if (query.quotation_number) {
-      conditions.push({
-        quotation_number: {
-          [Op.like]: `%${query.quotation_number}%`,
-        },
-      });
-    }
-
-    if (query.customer_name) {
-      conditions.push({
-        customer_name: {
-          [Op.like]: `%${query.customer_name}%`,
-        },
-      });
-    }
-
-    if (query.contact_person_name) {
-      conditions.push({
-        contact_person_name: {
-          [Op.like]: `%${query.contact_person_name}%`,
-        },
-      });
-    }
-
-    if (query.contact_person_email) {
-      conditions.push({
-        contact_person_email: {
-          [Op.like]: `%${query.contact_person_email}%`,
-        },
-      });
-    }
-
-    if (query.contact_person_phone) {
-      conditions.push({
-        contact_person_phone: {
-          [Op.like]: `%${query.contact_person_phone}%`,
-        },
-      });
-    }
-
-    if (query.customer_gst_number) {
-      conditions.push({
-        customer_gst_number: {
-          [Op.like]: `%${query.customer_gst_number}%`,
-        },
-      });
-    }
-
-    if (query.customer_type) {
-      conditions.push({
-        customer_type: {
-          [Op.like]: `%${query.customer_type}%`,
-        },
-      });
-    }
-
-    if (query.search) {
-      conditions.push({
-        [Op.or]: [
-          {
-            quotation_number: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            customer_name: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            contact_person_name: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            contact_person_email: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            contact_person_phone: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            customer_gst_number: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            customer_type: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-          {
-            status: {
-              [Op.like]: `%${query.search}%`,
-            },
-          },
-        ],
-      });
-    }
-
-    if (query.from_date && query.to_date) {
-      conditions.push({
-        created_at: {
-          [Op.between]: [new Date(query.from_date), new Date(query.to_date)],
-        },
+        has_invoice: false
       });
     }
 
@@ -718,6 +600,131 @@ export class QuotationService {
     }
   }
 
+
+  async getQuotationsListForInvoice(
+    query: QuotationsListDto,
+    currentUser: {
+      company_id: number;
+      user_id: number;
+    },
+  ): Promise<IServiceResponse> {
+    const log = this.getLog('getQuotationsListForInvoice');
+
+    log.info('Fetching quotations list', {
+      companyId: currentUser.company_id,
+      filters: query,
+    });
+
+    try {
+      // =========================================
+      // PAGINATION
+      // =========================================
+
+      const page = Number(query.page) > 0 ? Number(query.page) : 1;
+
+      const limit =
+        Number(query.limit) > 0 && Number(query.limit) <= 100
+          ? Number(query.limit)
+          : 10;
+
+      const offset = (page - 1) * limit;
+
+      // =========================================
+      // SEARCH FILTERS
+      // =========================================
+
+      const whereClause: any = {
+        company_id: currentUser.company_id,
+
+        ...this.buildSearchFilters(query),
+      };
+
+      log.debug('Executing quotation query', {
+        page,
+        limit,
+        offset,
+        whereClause,
+      });
+
+      // =========================================
+      // QUERY
+      // =========================================
+
+      // Keep customer include only for display purposes; filtering is snapshot-driven on quotations.
+      const includeRelations = this.buildQuotationIncludeRelations();
+
+      const result = await this.Quotations.findAndCountAll({
+        where: whereClause,
+
+        include: includeRelations,
+
+        distinct: true,
+
+        order: [['created_at', 'DESC']],
+
+        limit,
+
+        offset,
+      });
+
+      const total = Number(result.count) || 0;
+
+      const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
+
+      log.info('Quotations fetched successfully', {
+        total,
+        fetched: result.rows.length,
+        page,
+        totalPages,
+      });
+
+      return {
+        success: true,
+
+        message: 'Quotations fetched successfully',
+
+        data: {
+          rows: result.rows,
+
+          pagination: {
+            total,
+
+            page,
+
+            limit,
+
+            totalPages,
+
+            hasNextPage: page < totalPages,
+
+            hasPrevPage: page > 1,
+          },
+        },
+      };
+    } catch (error) {
+      log.error('Failed to fetch quotations', error as Error);
+
+      return {
+        success: false,
+
+        message: 'Failed to fetch quotations',
+
+        data: {
+          rows: [],
+
+          pagination: {
+            total: 0,
+            page: 1,
+            limit: 10,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false,
+          },
+        },
+      };
+    }
+  }
+
   async createQuotation(data: CreateQuotationDto): Promise<IServiceResponse> {
     const log = this.getLog('createQuotation', {
       customerId: data.customer_id,
@@ -848,6 +855,25 @@ export class QuotationService {
 
     const transaction = await this.dbProvider.sequelize.transaction();
 
+    if (
+  data.validity_date &&
+  new Date(data.validity_date) <
+    new Date(
+      new Date().setHours(
+        0,
+        0,
+        0,
+        0,
+      ),
+    )
+) {
+ return {
+          success: true,
+          message: 'Validity date must be a future date',
+          data: null,
+        };
+}
+
     try {
       const quotation = await this.Quotations.findByPk(id, {
         include: [
@@ -934,6 +960,7 @@ export class QuotationService {
           igst_amount: totals.igst_amount,
           transport_charges: totals.transport_charges,
           grand_total: totals.grand_total,
+          status: 'DRAFT', // Reset to DRAFT on any change that affects totals
         });
       }
 
@@ -1169,6 +1196,88 @@ export class QuotationService {
       return {
         success: false,
         message: 'Failed to send quotation',
+        data: null,
+      };
+    }
+  }
+
+    async approveQuotation(id: number, userId?: number): Promise<IServiceResponse> {
+    const log = this.getLog('approveQuotation', { quotationId: id });
+    log.info('Approving quotation');
+
+    const transaction = await this.dbProvider.sequelize.transaction();
+
+    try {
+      const quotation = await this.Quotations.findByPk(id, {
+        transaction,
+      });
+
+      if (!quotation) {
+        await transaction.rollback();
+        log.warn('Quotation not found', { quotationId: id });
+
+        return {
+          success: false,
+          message: 'Quotation not found',
+          data: null,
+        };
+      }
+
+      const currentVersion = Number(quotation.version_number || 1);
+      const changedBy = userId ?? quotation.updated_by;
+
+      await this.QuotationVersions.create(
+        {
+          quotation_id: quotation.id,
+          version_number: currentVersion,
+          quotation_snapshot: quotation.toJSON(),
+          action_type: 'APPROVED',
+          changed_by: changedBy,
+        },
+        { transaction },
+      );
+
+      await quotation.update(
+        {
+          status: 'APPROVED',
+          version_number: currentVersion + 1,
+          updated_by: changedBy,
+        },
+        { transaction },
+      );
+
+      const updatedQuotation = await this.fetchQuotationById(
+        quotation.id,
+        transaction,
+      );
+
+      await this.createActivityLog(
+        quotation.id,
+        'APPROVED',
+        quotation.toJSON(),
+        updatedQuotation ? updatedQuotation.toJSON() : null,
+        changedBy,
+        transaction,
+      );
+
+      await transaction.commit();
+
+      log.info('Quotation approved successfully', {
+        quotationId: quotation.id,
+      });
+
+      return {
+        success: true,
+        message: 'Quotation approved successfully',
+        data: updatedQuotation,
+      };
+    } catch (error: unknown) {
+      await transaction.rollback();
+      log.error('Failed to approve quotation', error as Error);
+
+      return {
+        success: false,
+        message: 'Failed to approve quotation',
         data: null,
       };
     }

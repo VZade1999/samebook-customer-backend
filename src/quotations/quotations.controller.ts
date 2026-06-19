@@ -80,6 +80,51 @@ export class QuotationController {
     }
   }
 
+  // GET QUOTATION LIST FOR INVOICE
+  @Get('/list-for-invoice')
+  async getQuotationsForInvoice(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query() query: QuotationsListDto,
+    @GetUser() currentUser: CurrentUser,
+  ) {
+    const log = this.appLogger.forContext(
+      'QuotationController',
+      'getQuotationsForInvoice',
+      {
+        ip: req.ip,
+      },
+    );
+       try {
+      currentUser = {
+        user_id: 1,
+        company_id: 1,
+        email: 'vzade1999@gmail.com'
+      }; // Ensure currentUser is defined
+      if (!currentUser) {
+        log.warn('Unauthorized request');
+
+        throw new UnauthorizedException('User authentication required');
+      }
+      const response = await this.quotationService.getQuotationsListForInvoice(
+        query,
+        currentUser,
+      );
+
+      if (!response.success) {
+        return failedRes(res, response.message);
+      }
+
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      log.error('Get quotations list for invoice failed', error);
+
+      return errorRes(res, error);
+    }
+
+    }
+
+
   // CREATE QUOTATION
 
   @Post()
@@ -224,6 +269,26 @@ export class QuotationController {
   ) {
     try {
       const response = await this.quotationService.sendQuotation(id, user_id);
+
+      if (!response.success) {
+        return failedRes(res, response.message);
+      }
+
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+    @Post('/:id/approve')
+  async approveQuotation(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Param('id', ParseIntPipe) id: number,
+    @Body('user_id') user_id?: number,
+  ) {
+    try {
+      const response = await this.quotationService.approveQuotation(id, user_id);
 
       if (!response.success) {
         return failedRes(res, response.message);

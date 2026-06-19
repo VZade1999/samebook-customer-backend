@@ -13,9 +13,17 @@ export class AddPaymentDto {
   @IsNumber()
   amount: number;
 
-  @IsOptional()
-  @IsString()
-  payment_method?: string;
+
+   payment_date?: string;
+
+
+
+payment_mode:
+    | 'CASH'
+    | 'BANK_TRANSFER'
+    | 'CHEQUE'
+    | 'UPI'
+    | 'CARD';
 
   @IsOptional()
   @IsString()

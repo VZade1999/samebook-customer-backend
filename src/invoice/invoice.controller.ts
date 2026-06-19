@@ -65,7 +65,7 @@ async getInvoiceDetails(
   );
   }
 
-@Post('/:id/payment')
+@Post('/:id/payments')
 async addPayment(
   @Param('id', ParseIntPipe)
   invoiceId: number,

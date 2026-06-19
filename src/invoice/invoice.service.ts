@@ -231,6 +231,16 @@ quotation.payment_details_snapshot =
       },
     );
 
+    await quotation.update(
+      {
+        
+        has_invoice: true,
+      },
+      {
+        transaction,
+      },
+    );
+
     await transaction.commit();
 
     return {
@@ -406,6 +416,7 @@ async getInvoiceDetails(
     throw error;
   }
 }
+
 async addPayment(
   invoiceId: number,
   payload: any,
@@ -439,30 +450,30 @@ async addPayment(
       );
     }
 
-    const totalPaid =
-      await this.db.db.invoice_payments.sum(
-        'amount',
-        {
-          where: {
-            invoice_id: invoiceId,
-          },
-          transaction,
-        },
-      );
+    const invoiceTotal = Number(
+      invoice.grand_total || 0,
+    );
 
-    const alreadyPaid =
-      Number(totalPaid || 0);
+    const alreadyPaid = Number(
+      invoice.paid_amount || 0,
+    );
+
+    const paymentAmount = Number(
+      payload.amount || 0,
+    );
+
+    if (paymentAmount <= 0) {
+      throw new BadRequestException(
+        'Payment amount must be greater than zero',
+      );
+    }
 
     const newTotalPaid =
-      alreadyPaid +
-      Number(payload.amount);
-
-    const invoiceTotal =
-      Number(invoice.grand_total);
+      alreadyPaid + paymentAmount;
 
     if (newTotalPaid > invoiceTotal) {
       throw new BadRequestException(
-        'Payment exceeds invoice amount',
+        `Payment exceeds invoice amount. Remaining balance is ₹${invoiceTotal - alreadyPaid}`,
       );
     }
 
@@ -470,29 +481,39 @@ async addPayment(
       {
         invoice_id: invoice.id,
 
-        amount: payload.amount,
+        payment_date:
+          payload.payment_date ||
+          new Date(),
 
-        payment_method:
-          payload.payment_method,
+        payment_amount:
+          paymentAmount,
+
+        payment_mode:
+          payload.payment_mode,
 
         transaction_reference:
           payload.transaction_reference,
 
-        notes: payload.notes,
+        remarks:
+          payload.notes,
 
         received_by:
           payload.received_by,
       },
-      { transaction },
+      {
+        transaction,
+      },
     );
 
-    let status = 'UNPAID';
+    let status =
+      invoice.status ||
+      'GENERATED';
 
     if (
       newTotalPaid > 0 &&
       newTotalPaid < invoiceTotal
     ) {
-      status = 'PARTIAL';
+      status = 'PARTIAL_PAID';
     }
 
     if (
@@ -512,41 +533,69 @@ async addPayment(
 
         status,
       },
-      { transaction },
-    );
-if (status === 'PARTIAL') {
-    await this.db.db.invoice_activity_logs.create(
       {
-        invoice_id: invoice.id,
-
-        action:
-          'INVOICE_PARTIAL',
-
-        changed_by:
-          payload.received_by,
-
-        new_value: {
-          amount:
-            payload.amount,
-
-          payment_method:
-            payload.payment_method,
-        },
+        transaction,
       },
-      { transaction },
     );
-}
 
-if (status === 'PAID') {
-  await this.db.db.invoice_activity_logs.create(
-    {
-      invoice_id: invoice.id,
-      action: 'INVOICE_PAID',
-      changed_by: payload.received_by,
-    },
-    { transaction },
-  );
-}
+    if (
+      status ===
+      'PARTIAL_PAID'
+    ) {
+      await this.db.db.invoice_activity_logs.create(
+        {
+          invoice_id: invoice.id,
+
+          action:
+            'INVOICE_PARTIAL_PAID',
+
+          changed_by:
+            payload.received_by,
+
+          new_value: {
+            payment_amount:
+              paymentAmount,
+
+            payment_mode:
+              payload.payment_mode,
+
+            transaction_reference:
+              payload.transaction_reference,
+          },
+        },
+        {
+          transaction,
+        },
+      );
+    }
+
+    if (status === 'PAID') {
+      await this.db.db.invoice_activity_logs.create(
+        {
+          invoice_id: invoice.id,
+
+          action:
+            'INVOICE_PAID',
+
+          changed_by:
+            payload.received_by,
+
+          new_value: {
+            payment_amount:
+              paymentAmount,
+
+            payment_mode:
+              payload.payment_mode,
+
+            transaction_reference:
+              payload.transaction_reference,
+          },
+        },
+        {
+          transaction,
+        },
+      );
+    }
 
     await transaction.commit();
 
@@ -554,6 +603,15 @@ if (status === 'PAID') {
       success: true,
       message:
         'Payment recorded successfully',
+      data: {
+        invoice_id: invoice.id,
+        paid_amount:
+          newTotalPaid,
+        balance_amount:
+          invoiceTotal -
+          newTotalPaid,
+        status,
+      },
     };
   } catch (error) {
     await transaction.rollback();
