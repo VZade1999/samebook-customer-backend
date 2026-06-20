@@ -3,11 +3,13 @@ import {
   Inject,
   BadRequestException,
 } from '@nestjs/common';
-import {Op} from 'sequelize';
+import {Op, WhereOptions} from 'sequelize';
 import { AppLogger } from
   'src/common/logger/logger.service';
 import { InvoiceMapper } from './mapper/invoice.mapper';
 import { LogContext } from 'src/common/logger/logger.context';
+import { InvoiceListDto } from './dto/invoiceList.dto';
+import { invoicesAttributes } from 'src/models/init-models';
 
 @Injectable()
 export class InvoiceService {
@@ -17,6 +19,56 @@ export class InvoiceService {
 
     private logger: AppLogger,
   ) {}
+
+   private buildSearchFilters(
+      query: InvoiceListDto,
+    ): WhereOptions<invoicesAttributes> {
+      const conditions: WhereOptions<invoicesAttributes>[] = [];
+      if (query.status) {
+      conditions.push({
+        status: query.status,
+      });
+    }
+  
+    if (query.search?.trim()) {
+      conditions.push({
+        [Op.or]: [
+          {
+            invoice_number: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },  
+           {
+            status: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            customer_name: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            contact_person_name: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+          {
+            contact_person_email: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+             {
+            contact_person_phone: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
+        ],
+      });
+    }
+  
+      return conditions.length > 0 ? { [Op.and]: conditions } : {};
+    }
 
   async generateInvoice(
   quotationId: number,
@@ -282,28 +334,8 @@ async listInvoices(
 
     const where: any = {
       company_id: companyId,
+        ...this.buildSearchFilters(query),
     };
-
-    if (query.search) {
-      where[this.db.Sequelize.Op.or] = [
-        {
-          invoice_number: {
-            [this.db.Sequelize.Op.like]:
-              `%${query.search}%`,
-          },
-        },
-        {
-          customer_name: {
-            [this.db.Sequelize.Op.like]:
-              `%${query.search}%`,
-          },
-        },
-      ];
-    }
-
-    if (query.status) {
-      where.status = query.status;
-    }
 
     const { rows, count } =
       await this.db.db.invoices.findAndCountAll(

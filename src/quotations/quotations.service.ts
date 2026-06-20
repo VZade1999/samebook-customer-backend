@@ -65,15 +65,49 @@ export class QuotationService {
     query: QuotationsListDto,
   ): WhereOptions<quotationsAttributes> {
     const conditions: WhereOptions<quotationsAttributes>[] = [];
-
     if (query.status) {
-      conditions.push({
-        status: {
-          [Op.like]: `%${query.status}%`,
+    conditions.push({
+      status: query.status,
+      has_invoice: false,
+    });
+  }
+
+  if (query.search?.trim()) {
+    conditions.push({
+      [Op.or]: [
+        {
+          quotation_number: {
+            [Op.like]: `%${query.search}%`,
+          },
+        },  
+         {
+          status: {
+            [Op.like]: `%${query.search}%`,
+          },
         },
-        has_invoice: false,
-      });
-    }
+        {
+          customer_name: {
+            [Op.like]: `%${query.search}%`,
+          },
+        },
+        {
+          contact_person_name: {
+            [Op.like]: `%${query.search}%`,
+          },
+        },
+        {
+          contact_person_email: {
+            [Op.like]: `%${query.search}%`,
+          },
+        },
+           {
+          contact_person_phone: {
+            [Op.like]: `%${query.search}%`,
+          },
+        },
+      ],
+    });
+  }
 
     return conditions.length > 0 ? { [Op.and]: conditions } : {};
   }
@@ -541,18 +575,53 @@ export class QuotationService {
       // Keep customer include only for display purposes; filtering is snapshot-driven on quotations.
       const includeRelations = this.buildQuotationIncludeRelations();
 
-      const result = await this.Quotations.findAndCountAll({
-        where: whereClause,
+      const [statusCounts, result ] = await Promise.all([
+        this.Quotations.findAll({
+          attributes: [
+            'status',
+            [
+              this.Quotations.sequelize.fn(
+                'COUNT',
+                this.Quotations.sequelize.col('id'),
+              ),
+              'count',
+            ],
+          ],
 
-        include: includeRelations,
+          where: {
+            company_id: currentUser.company_id,
+          },
 
-        distinct: true,
+          group: ['status'],
 
-        order: [['created_at', 'DESC']],
+          raw: true,
+        }),
+        this.Quotations.findAndCountAll({
+          where: whereClause,
 
-        limit,
+          include: includeRelations,
 
-        offset,
+          distinct: true,
+
+          order: [['created_at', 'DESC']],
+
+          limit,
+
+          offset,
+        }),
+      ]);
+
+      const statusSummary = {
+        DRAFT: 0,
+        SENT: 0,
+        APPROVED: 0,
+        REJECTED: 0,
+        EXPIRED: 0,
+        INVOICED: 0,
+      };
+
+      statusCounts.forEach((item: any) => {
+        statusSummary[item.status] = Number(item.count);
       });
 
       const total = Number(result.count) || 0;
@@ -573,7 +642,7 @@ export class QuotationService {
 
         data: {
           rows: result.rows,
-
+          statusCounts: statusSummary,
           pagination: {
             total,
 
