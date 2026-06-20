@@ -1,5 +1,11 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { Op, QueryTypes, Transaction, WhereOptions, Includeable } from 'sequelize';
+import {
+  Op,
+  QueryTypes,
+  Transaction,
+  WhereOptions,
+  Includeable,
+} from 'sequelize';
 
 import { AppLogger } from 'src/common/logger/logger.service';
 import { DocumentType } from 'src/common/enums/document-type.enum';
@@ -20,6 +26,7 @@ import { IServiceResponse } from './api-response.interface';
 import { quotation_activity_logs } from 'src/models/quotation-activity-logs';
 import { customer_contacts } from 'src/models/customer_contacts';
 import { customer_addresses } from 'src/models/customer_addresses';
+import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
 
 @Injectable()
 export class QuotationService {
@@ -64,7 +71,7 @@ export class QuotationService {
         status: {
           [Op.like]: `%${query.status}%`,
         },
-        has_invoice: false
+        has_invoice: false,
       });
     }
 
@@ -198,7 +205,8 @@ export class QuotationService {
         ((item.discount_percent ?? 0) / 100) * lineSubtotal,
       );
       const discountedLineTotal = Number(lineSubtotal - lineDiscount);
-      const discountedRate = item.qty && item.qty > 0 ? discountedLineTotal / item.qty : 0;
+      const discountedRate =
+        item.qty && item.qty > 0 ? discountedLineTotal / item.qty : 0;
 
       return {
         quotation_id: quotationId,
@@ -249,7 +257,9 @@ export class QuotationService {
     const igstAmount = Number(((taxableAmount * igstPct) / 100).toFixed(2));
     const taxTotal = Number((cgstAmount + sgstAmount + igstAmount).toFixed(2));
 
-    const grandTotal = Number((taxableAmount + taxTotal + transport).toFixed(2));
+    const grandTotal = Number(
+      (taxableAmount + taxTotal + transport).toFixed(2),
+    );
 
     return {
       sub_total: Number(subTotal.toFixed(2)),
@@ -322,7 +332,10 @@ export class QuotationService {
       shipping_address_snapshot: data.shipping_address_snapshot,
       business_details_snapshot: data.business_details_snapshot,
       payment_details_snapshot: (() => {
-        if (data.payment_details_snapshot === undefined || data.payment_details_snapshot === null) {
+        if (
+          data.payment_details_snapshot === undefined ||
+          data.payment_details_snapshot === null
+        ) {
           return undefined;
         }
 
@@ -600,7 +613,6 @@ export class QuotationService {
     }
   }
 
-
   async getQuotationsListForInvoice(
     query: QuotationsListDto,
     currentUser: {
@@ -856,23 +868,15 @@ export class QuotationService {
     const transaction = await this.dbProvider.sequelize.transaction();
 
     if (
-  data.validity_date &&
-  new Date(data.validity_date) <
-    new Date(
-      new Date().setHours(
-        0,
-        0,
-        0,
-        0,
-      ),
-    )
-) {
- return {
-          success: true,
-          message: 'Validity date must be a future date',
-          data: null,
-        };
-}
+      data.validity_date &&
+      new Date(data.validity_date) < new Date(new Date().setHours(0, 0, 0, 0))
+    ) {
+      return {
+        success: true,
+        message: 'Validity date must be a future date',
+        data: null,
+      };
+    }
 
     try {
       const quotation = await this.Quotations.findByPk(id, {
@@ -918,22 +922,23 @@ export class QuotationService {
 
       const shouldRecalcTotals = Boolean(
         (data.items && data.items.length > 0) ||
-          data.discount_amount !== undefined ||
-          data.transport_charges !== undefined ||
-          data.cgst_percent !== undefined ||
-          data.sgst_percent !== undefined ||
-          data.igst_percent !== undefined,
+        data.discount_amount !== undefined ||
+        data.transport_charges !== undefined ||
+        data.cgst_percent !== undefined ||
+        data.sgst_percent !== undefined ||
+        data.igst_percent !== undefined,
       );
 
       if (shouldRecalcTotals) {
-        const itemsToRecalc = data.items && data.items.length > 0
-          ? data.items
-          : ((quotation as any).items || []).map((item: any) => ({
-              product_name: item.product_name,
-              qty: item.qty,
-              rate: item.rate,
-              discount_percent: item.discount_percent,
-            }));
+        const itemsToRecalc =
+          data.items && data.items.length > 0
+            ? data.items
+            : ((quotation as any).items || []).map((item: any) => ({
+                product_name: item.product_name,
+                qty: item.qty,
+                rate: item.rate,
+                discount_percent: item.discount_percent,
+              }));
 
         const totals = this.computeTotalsFromItems(
           itemsToRecalc,
@@ -943,9 +948,15 @@ export class QuotationService {
           data.transport_charges !== undefined
             ? data.transport_charges
             : quotation.transport_charges,
-          data.cgst_percent !== undefined ? data.cgst_percent : quotation.cgst_percent,
-          data.sgst_percent !== undefined ? data.sgst_percent : quotation.sgst_percent,
-          data.igst_percent !== undefined ? data.igst_percent : quotation.igst_percent,
+          data.cgst_percent !== undefined
+            ? data.cgst_percent
+            : quotation.cgst_percent,
+          data.sgst_percent !== undefined
+            ? data.sgst_percent
+            : quotation.sgst_percent,
+          data.igst_percent !== undefined
+            ? data.igst_percent
+            : quotation.igst_percent,
         );
 
         Object.assign(updatePayload, {
@@ -1201,7 +1212,10 @@ export class QuotationService {
     }
   }
 
-    async approveQuotation(id: number, userId?: number): Promise<IServiceResponse> {
+  async approveQuotation(
+    id: number,
+    userId?: number,
+  ): Promise<IServiceResponse> {
     const log = this.getLog('approveQuotation', { quotationId: id });
     log.info('Approving quotation');
 
@@ -1283,116 +1297,87 @@ export class QuotationService {
     }
   }
 
-  async deleteQuotation(
-  id: number,
-  userId: number,
-): Promise<IServiceResponse> {
-  const log = this.getLog(
-    'deleteQuotation',
-    {
+  async deleteQuotation(id: number, userId: number): Promise<IServiceResponse> {
+    const log = this.getLog('deleteQuotation', {
       quotationId: id,
-    },
-  );
+    });
 
-  const transaction =
-    await this.dbProvider.sequelize.transaction();
+    const transaction = await this.dbProvider.sequelize.transaction();
 
-  try {
-    const quotation =
-      await this.Quotations.findByPk(id, {
+    try {
+      const quotation = await this.Quotations.findByPk(id, {
         transaction,
       });
 
-    if (!quotation) {
-      await transaction.rollback();
+      if (!quotation) {
+        await transaction.rollback();
 
-      return {
-        success: false,
-        message:
-          'Quotation not found',
-        data: null,
-      };
-    }
+        return {
+          success: false,
+          message: 'Quotation not found',
+          data: null,
+        };
+      }
 
-    const oldSnapshot =
-      quotation.toJSON();
+      const oldSnapshot = quotation.toJSON();
 
-    await this.QuotationVersions.create(
-      {
-        quotation_id:
-          quotation.id,
+      await this.QuotationVersions.create(
+        {
+          quotation_id: quotation.id,
 
-        version_number:
-          Number(
-            quotation.version_number ||
-              1,
-          ),
+          version_number: Number(quotation.version_number || 1),
 
-        quotation_snapshot:
-          oldSnapshot,
+          quotation_snapshot: oldSnapshot,
 
-        action_type:
-          'UPDATED',
+          action_type: 'UPDATED',
 
-        changed_by: userId,
-      },
-      { transaction },
-    );
+          changed_by: userId,
+        },
+        { transaction },
+      );
 
-    await quotation.update(
-      {
-        status: 'DELETED',
+      await quotation.update(
+        {
+          status: 'DELETED',
 
-        updated_by: userId,
+          updated_by: userId,
 
-        version_number:
-          Number(
-            quotation.version_number ||
-              1,
-          ) + 1,
-      },
-      { transaction },
-    );
+          version_number: Number(quotation.version_number || 1) + 1,
+        },
+        { transaction },
+      );
 
-    const updatedQuotation =
-      await this.fetchQuotationById(
+      const updatedQuotation = await this.fetchQuotationById(
         quotation.id,
         transaction,
       );
 
-    await this.createActivityLog(
-      quotation.id,
-      'DELETED',
-      oldSnapshot,
-      updatedQuotation
-        ? updatedQuotation.toJSON()
-        : null,
-      userId,
-      transaction,
-    );
+      await this.createActivityLog(
+        quotation.id,
+        'DELETED',
+        oldSnapshot,
+        updatedQuotation ? updatedQuotation.toJSON() : null,
+        userId,
+        transaction,
+      );
 
-    await transaction.commit();
+      await transaction.commit();
 
-    return {
-      success: true,
-      message:
-        'Quotation deleted successfully',
-      data: updatedQuotation,
-    };
-  } catch (error) {
-    await transaction.rollback();
+      return {
+        success: true,
+        message: 'Quotation deleted successfully',
+        data: updatedQuotation,
+      };
+    } catch (error) {
+      await transaction.rollback();
 
-    log.error(
-      'Failed to delete quotation',
-      error as Error,
-    );
+      log.error('Failed to delete quotation', error as Error);
 
-    return {
-      success: false,
-      message:
-        'Failed to delete quotation',
-      data: null,
-    };
+      return {
+        success: false,
+        message: 'Failed to delete quotation',
+        data: null,
+      };
+    }
   }
-}
 }

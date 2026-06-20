@@ -52,12 +52,7 @@ export class QuotationController {
         ip: req.ip,
       },
     );// Debug log to check the value of currentUser
-    try {
-      currentUser = {
-        user_id: 1,
-        company_id: 1,
-        email: 'vzade1999@gmail.com'
-      }; // Ensure currentUser is defined
+    try { // Ensure currentUser is defined
       if (!currentUser) {
         log.warn('Unauthorized request');
 
@@ -96,11 +91,7 @@ export class QuotationController {
       },
     );
        try {
-      currentUser = {
-        user_id: 1,
-        company_id: 1,
-        email: 'vzade1999@gmail.com'
-      }; // Ensure currentUser is defined
+
       if (!currentUser) {
         log.warn('Unauthorized request');
 
@@ -171,6 +162,7 @@ export class QuotationController {
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateQuotationDto,
+    
   ) {
     const log = this.appLogger.forContext(
       'QuotationController',
