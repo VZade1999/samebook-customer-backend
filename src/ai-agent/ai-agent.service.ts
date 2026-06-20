@@ -578,7 +578,7 @@ export class AiAgentService {
 
         // ── GET PRODUCTS ─────────────────────────────────────────────────
         case 'get_products_list': {
-          const result = await this.productService.getProductsList(args);
+          const result = await this.productService.getProductsList(args, currentUser);
           return JSON.stringify(result.data);
         }
 

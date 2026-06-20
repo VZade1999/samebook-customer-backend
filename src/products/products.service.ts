@@ -197,7 +197,7 @@ export class ProductService {
     };
   }
 
-  async getProductsList(data: ProductsListDto) {
+  async getProductsList(data: ProductsListDto, currentUser:any) {
     const log = this.appLogger.forContext('ProductService', 'getProductsList');
 
     log.info('Fetching products list');
@@ -209,8 +209,7 @@ export class ProductService {
     const andConditions: any[] = [];
     andConditions.push({ is_active: true });
 
-    if (data.company_id)
-      andConditions.push({ company_id: data.company_id });
+      andConditions.push({ company_id: currentUser.company_id });
     if (data.name)
       andConditions.push({ name: { [Op.like]: `%${data.name}%` } });
     if (data.product_code)

@@ -25,7 +25,8 @@ import { UpdateProductDto } from './dto/updateProduct.dto';
 import { ProductsListDto } from './products-list.dto';
 import { ProductService } from './products.service';
 import { AuthGuard } from 'src/middlewares/auth.guard';
-
+import { GetUser } from 'src/common/decorators/get-user.decorator';
+import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
 
 @Controller('product')
 @UseGuards(AuthGuard)
@@ -36,7 +37,6 @@ export class ProductController {
   ) {}
 
   @Post('/create')
-  
   @UsePipes(ValidationPipe)
   async createProduct(
     @Req() req: Request,
@@ -69,6 +69,7 @@ export class ProductController {
     @Req() req: Request,
     @Res() res: Response,
     @Query() query: ProductsListDto,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext('ProductController', 'productsList', {
       ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
@@ -77,7 +78,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.getProductsList(query);
+      const response = await this.productService.getProductsList(query, currentUser);
       if (!response.success) {
         log.warn(`Products list rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -97,10 +98,14 @@ export class ProductController {
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const log = this.appLogger.forContext('ProductController', 'deleteProduct', {
-      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-      productId: id,
-    });
+    const log = this.appLogger.forContext(
+      'ProductController',
+      'deleteProduct',
+      {
+        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+        productId: id,
+      },
+    );
 
     log.info('Request received');
 
@@ -124,10 +129,14 @@ export class ProductController {
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const log = this.appLogger.forContext('ProductController', 'activateProduct', {
-      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-      productId: id,
-    });
+    const log = this.appLogger.forContext(
+      'ProductController',
+      'activateProduct',
+      {
+        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+        productId: id,
+      },
+    );
 
     log.info('Request received');
 
@@ -151,10 +160,14 @@ export class ProductController {
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const log = this.appLogger.forContext('ProductController', 'deactivateProduct', {
-      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-      productId: id,
-    });
+    const log = this.appLogger.forContext(
+      'ProductController',
+      'deactivateProduct',
+      {
+        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+        productId: id,
+      },
+    );
 
     log.info('Request received');
 
@@ -178,10 +191,14 @@ export class ProductController {
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const log = this.appLogger.forContext('ProductController', 'getProductById', {
-      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-      productId: id,
-    });
+    const log = this.appLogger.forContext(
+      'ProductController',
+      'getProductById',
+      {
+        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+        productId: id,
+      },
+    );
 
     log.info('Request received');
 
@@ -208,10 +225,14 @@ export class ProductController {
     @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateProductDto,
   ) {
-    const log = this.appLogger.forContext('ProductController', 'updateProduct', {
-      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-      productId: id,
-    });
+    const log = this.appLogger.forContext(
+      'ProductController',
+      'updateProduct',
+      {
+        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+        productId: id,
+      },
+    );
 
     log.info('Request received');
 
