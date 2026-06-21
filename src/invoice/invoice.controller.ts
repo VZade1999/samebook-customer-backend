@@ -19,6 +19,7 @@ import { InvoiceListDto } from './dto/invoiceList.dto';
 import { AddPaymentDto } from './dto/addPayment.dto';
 import { GetUser } from 'src/common/decorators/get-user.decorator';
 import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
+import { GenrateInvoice } from './dto/genrateInvoice.dto';
 
 @Controller('invoice')
 export class InvoiceController {
@@ -58,10 +59,13 @@ async getInvoiceDetails(
       ParseIntPipe,
     )
     quotationId: number,
+    @Body() body:GenrateInvoice,
+    @GetUser() currentUser: CurrentUser,
   ) {
     return this.invoiceService.generateInvoice(
     quotationId,
-    1,
+    body,
+    currentUser.user_id,
   );
   }
 

@@ -1,10 +1,14 @@
+import { GenrateInvoice } from "../dto/genrateInvoice.dto";
+
 export class InvoiceMapper {
   static buildInvoicePayload(
     quotation: any,
     invoiceNumber: string,
     sequenceData: any,
     generatedBy: number,
+    body: GenrateInvoice
   ) {
+
     return {
       quotation_id: quotation.id,
 
@@ -26,6 +30,8 @@ export class InvoiceMapper {
         sequenceData.overallSequence,
 
       invoice_date: new Date(),
+
+      due_date:new Date(body.payment_due_date),
 
       status: 'GENERATED',
 

@@ -397,7 +397,7 @@ export class CompanyService {
           default_terms_conditions: data.default_terms_conditions,
         }),
         ...(data.status !== undefined && { status: data.status }),
-        ...(data.logo !== undefined && { logo: logoUpdateValue }),
+        ...(data.logo !== null && { logo: logoUpdateValue }),
       }));
     } catch (err) {
       log.error('DB error while updating company', err);

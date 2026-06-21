@@ -1180,6 +1180,13 @@ export class QuotationService {
           'changed_by',
           'created_at',
         ],
+        include: [
+          {
+              model: this.Users,
+            as: 'changed_by_user',
+            attributes: ['id', 'first_name', 'last_name', 'email'],
+          }
+        ],
         order: [['created_at', 'DESC']],
       });
 
