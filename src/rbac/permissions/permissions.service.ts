@@ -113,7 +113,7 @@ console.log(rows,'permissions')
       if (existingPermission) {
         throw new ConflictException(
           'Permission already exists',
-    ../../
+        );
       }
 
       const permission =
