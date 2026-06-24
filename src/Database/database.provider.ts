@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { Sequelize } from 'sequelize';
-import { initModels } from 'src/models/init-models';
+import { initModels } from '../models/init-models';
 // import { getParameters } from '../aws/ssm';
 
 
