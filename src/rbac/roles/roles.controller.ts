@@ -14,9 +14,9 @@ import {
 
 import { RolesService } from './roles.service';
 
-import { PermissionsGuard } from 'src/common/guards/permissions.guard';
-import { RequirePermissions } from 'src/common/decorators/require-permissions.decorator';
-import { AuthGuard } from 'src/middlewares/auth.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { AuthGuard } from '../../middlewares/auth.guard';
 
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('roles')

@@ -16,7 +16,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 
 import { errorRes, failedRes, successRes } from 'src/Util/response.util';
 import { CreateProductDto } from './dto/createProduct.dto';
@@ -24,9 +24,9 @@ import { CreateProductDto } from './dto/createProduct.dto';
 import { UpdateProductDto } from './dto/updateProduct.dto';
 import { ProductsListDto } from './products-list.dto';
 import { ProductService } from './products.service';
-import { AuthGuard } from 'src/middlewares/auth.guard';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
-import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
+import { AuthGuard } from '../middlewares/auth.guard';
+import { GetUser } from '../common/decorators/get-user.decorator';
+import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 
 @Controller('product')
 @UseGuards(AuthGuard)

@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 
 import { UserRolesService } from './user-roles.service';
-import { RequirePermissions } from 'src/common/decorators/require-permissions.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 
 @Controller('users')
 export class UserRolesController {

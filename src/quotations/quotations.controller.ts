@@ -17,9 +17,9 @@ import {
 
 import { Request, Response } from 'express';
 
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 
-import { successRes, failedRes, errorRes } from 'src/Util/response.util';
+import { successRes, failedRes, errorRes } from '../Util/response.util';
 
 import { QuotationService } from './quotations.service';
 
@@ -27,8 +27,8 @@ import { CreateQuotationDto } from './dto/createQuotation.dto';
 
 import { UpdateQuotationDto } from './dto/updateQuotation.dto';
 import { QuotationsListDto } from './dto/quotationsList.dto';
-import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
+import { CurrentUser } from '../common/interfaces/urrent-user.interface';
+import { GetUser } from '../common/decorators/get-user.decorator';
 
 @Controller('quotation')
 export class QuotationController {

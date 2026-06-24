@@ -17,8 +17,8 @@ import { InvoiceService } from './invoice.service';
 import { InvoiceListDto } from './dto/invoiceList.dto';
 
 import { AddPaymentDto } from './dto/addPayment.dto';
-import { GetUser } from 'src/common/decorators/get-user.decorator';
-import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
+import { GetUser } from '../common/decorators/get-user.decorator';
+import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 import { GenrateInvoice } from './dto/genrateInvoice.dto';
 
 @Controller('invoice')

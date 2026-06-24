@@ -1,8 +1,8 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
 import { col, fn, Op, WhereOptions } from 'sequelize';
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 import { InvoiceMapper } from './mapper/invoice.mapper';
-import { LogContext } from 'src/common/logger/logger.context';
+import { LogContext } from '../common/logger/logger.context';
 import { InvoiceListDto } from './dto/invoiceList.dto';
 import { invoicesAttributes, users } from 'src/models/init-models';
 import { GenrateInvoice } from './dto/genrateInvoice.dto';

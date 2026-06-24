@@ -8,8 +8,8 @@ import {
 
 import { Op } from 'sequelize';
 
-import { AppLogger } from 'src/common/logger/logger.service';
-import { LogContext } from 'src/common/logger/logger.context';
+import { AppLogger } from '../../common/logger/logger.service';
+import { LogContext } from '../../common/logger/logger.context';
 
 @Injectable()
 export class PermissionsService {
@@ -113,7 +113,7 @@ console.log(rows,'permissions')
       if (existingPermission) {
         throw new ConflictException(
           'Permission already exists',
-        );
+    ../../
       }
 
       const permission =

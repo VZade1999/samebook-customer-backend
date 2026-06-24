@@ -1,6 +1,6 @@
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 import { CreateProductDto } from './dto/createProduct.dto';
-import { products } from 'src/models/products';
+import { products } from '../models/products';
 
 import { Op } from 'sequelize';
 import { Inject, Injectable } from '@nestjs/common';

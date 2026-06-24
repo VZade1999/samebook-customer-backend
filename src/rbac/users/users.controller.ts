@@ -11,7 +11,7 @@ import {
   ParseIntPipe,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
-import { RequirePermissions } from 'src/common/decorators/require-permissions.decorator';
+import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
 
 @Controller('users')
 export class UsersController {

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { LoggerModule } from 'src/common/logger/logger.module';
+import { LoggerModule } from '../../common/logger/logger.module';
 import { RolesService } from './roles.service';
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../../common/logger/logger.service';
 
 import { RolesController } from './roles.controller';
 import { RolePermissionsController } from './role-permissions.controller';

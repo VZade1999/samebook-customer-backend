@@ -23,7 +23,7 @@ import { QuotationsListDto } from './dto/quotationsList.dto';
 import { QuotationItemDto } from './dto/quotationItems.dto';
 import { QuotationMapper } from './quotation.mapper';
 import { IServiceResponse } from './api-response.interface';
-import { quotation_activity_logs } from 'src/models/quotation-activity-logs';
+import { quotation_activity_logs } from '../models/quotation-activity-logs';
 import { customer_contacts } from '../models/customer_contacts';
 import { customer_addresses } from '../models/customer_addresses';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';

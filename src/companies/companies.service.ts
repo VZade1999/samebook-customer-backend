@@ -1,10 +1,10 @@
 import { AppLogger } from 'src/common/logger/logger.service';
 import { Inject } from '@nestjs/common';
-import { companies } from 'src/models/companies';
-import { company_addresses } from 'src/models/company_addresses';
-import { company_locations } from 'src/models/company_locations';
-import { company_metadata } from 'src/models/company_metadata';
-import { company_bank_accounts } from 'src/models/company_bank_accounts';
+import { companies } from '../models/companies';
+import { company_addresses } from '../models/company_addresses';
+import { company_locations } from '../models/company_locations';
+import { company_metadata } from '../models/company_metadata';
+import { company_bank_accounts } from '../models/company_bank_accounts';
 import { Op } from 'sequelize';
 import { CreateCompanyDto } from './dto/createCompany.dto';
 import { CompaniesListDto } from './companies-list.dto';

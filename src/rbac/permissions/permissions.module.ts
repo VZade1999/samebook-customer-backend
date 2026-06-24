@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
-import { LoggerModule } from 'src/common/logger/logger.module';
-import { AppLogger } from 'src/common/logger/logger.service';
+import { LoggerModule } from '../../common/logger/logger.module';
+import { AppLogger } from '../../common/logger/logger.service';
 import { PermissionsService } from './permissions.service';
 import { PermissionsController } from './permissions.controller';
 

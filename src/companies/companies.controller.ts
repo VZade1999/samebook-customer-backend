@@ -13,9 +13,9 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 import { CompanyService } from './companies.service';
-import { errorRes, failedRes, successRes } from 'src/Util/response.util';
+import { errorRes, failedRes, successRes } from '../Util/response.util';
 import { CreateCompanyDto } from './dto/createCompany.dto';
 import { CompaniesListDto } from './companies-list.dto';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
@@ -230,7 +230,7 @@ export class CompanyController {
 
     log.info('Request received');
     try {
-      const response = await this.companyService.updateCompany(id, body);
+      const response = await this.companyService.update../any(id, body);
       if (!response.success) {
         log.warn(`Company update rejected — ${response.message}`);
         return failedRes(res, response.message);
