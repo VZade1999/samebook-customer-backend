@@ -19,7 +19,7 @@ import { Request, Response } from 'express';
 
 import { AppLogger } from 'src/common/logger/logger.service';
 
-import { errorRes, failedRes, successRes } from 'src/Util/response.util';
+import { successRes, failedRes, errorRes } from 'src/Util/response.util';
 
 import { QuotationService } from './quotations.service';
 

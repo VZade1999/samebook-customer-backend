@@ -1,4 +1,11 @@
-export const successRes = (res, message, data, statusCode?) => {
+import { Response } from 'express';
+
+export const successRes = (
+  res: Response,
+  message?: string,
+  data?: any,
+  statusCode?: number,
+) => {
   return res.status(statusCode || 200).send({
     success: true,
     message: message || 'API Response completed',
@@ -6,14 +13,22 @@ export const successRes = (res, message, data, statusCode?) => {
   });
 };
 
-export const failedRes = (res, message, statusCode?) => {
+export const failedRes = (
+  res: Response,
+  message?: string,
+  statusCode?: number,
+) => {
   return res.status(statusCode || 500).send({
     success: false,
     message: message,
   });
 };
 
-export const errorRes = (res, error, statusCode?) => {
+export const errorRes = (
+  res: Response,
+  error?: any,
+  statusCode?: number,
+) => {
   return res.status(statusCode || 500).send({
     success: false,
     message: 'Something went wrong',
