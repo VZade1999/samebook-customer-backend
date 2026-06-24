@@ -26,6 +26,7 @@ export const databaseProviders = [
           {
             dialect: config.get('DB_DIALECT') || 'mysql',
             host: config.get('DB_HOST'),
+            dialectModule: require('mysql2'),
             port: config.get('DB_PORT') || 3306,
             define: {
               timestamps: true,
