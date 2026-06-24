@@ -7,15 +7,15 @@ import {
   Includeable,
 } from 'sequelize';
 
-import { AppLogger } from 'src/common/logger/logger.service';
-import { DocumentType } from 'src/common/enums/document-type.enum';
-import { generateDocumentNumber } from 'src/common/utils/document-number.util';
-import { quotations, quotationsAttributes } from 'src/models/quotations';
-import { quotation_items } from 'src/models/quotation-items';
-import { quotation_versions } from 'src/models/quotation-versions';
-import { customers } from 'src/models/customers';
-import { companies } from 'src/models/companies';
-import { users } from 'src/models/users';
+import { AppLogger } from '../common/logger/logger.service';
+import { DocumentType } from '../common/enums/document-type.enum';
+import { generateDocumentNumber } from '../common/utils/document-number.util';
+import { quotations, quotationsAttributes } from '../models/quotations';
+import { quotation_items } from '../models/quotation-items';
+import { quotation_versions } from '../models/quotation-versions';
+import { customers } from '../models/customers';
+import { companies } from '../models/companies';
+import { users } from '../models/users';
 
 import { CreateQuotationDto } from './dto/createQuotation.dto';
 import { UpdateQuotationDto } from './dto/updateQuotation.dto';
@@ -24,9 +24,9 @@ import { QuotationItemDto } from './dto/quotationItems.dto';
 import { QuotationMapper } from './quotation.mapper';
 import { IServiceResponse } from './api-response.interface';
 import { quotation_activity_logs } from 'src/models/quotation-activity-logs';
-import { customer_contacts } from 'src/models/customer_contacts';
-import { customer_addresses } from 'src/models/customer_addresses';
-import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
+import { customer_contacts } from '../models/customer_contacts';
+import { customer_addresses } from '../models/customer_addresses';
+import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 
 @Injectable()
 export class QuotationService {
