@@ -5,13 +5,13 @@ import {
 
 import { Op } from 'sequelize';
 
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 
-import { customers } from 'src/models/customers';
+import { customers } from '../models/customers';
 
-import { customer_contacts } from 'src/models/customer_contacts';
+import { customer_contacts } from '../models/customer_contacts';
 
-import { customer_addresses } from 'src/models/customer_addresses';
+import { customer_addresses } from '../models/customer_addresses';
 
 import { CreateCustomerDto } from './dto/createCustomer.dto';
 

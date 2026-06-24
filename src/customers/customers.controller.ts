@@ -19,27 +19,24 @@ import {
 
 import { Request, Response } from 'express';
 
-import { AppLogger } from 'src/common/logger/logger.service';
+import { AppLogger } from '../common/logger/logger.service';
 
-import {
-  errorRes,
-  failedRes,
-  successRes,
-} from 'src/Util/response.util';
+
 
 import { CustomerService } from './customers.service';
 
 import { AuthGuard } from './../middlewares/auth.guard';
 
-import { GetUser } from 'src/common/decorators/get-user.decorator';
 
-import { CurrentUser } from 'src/common/interfaces/urrent-user.interface';
 
 import { CreateCustomerDto } from './dto/createCustomer.dto';
 
 import { UpdateCustomerDto } from './dto/updateCustomer.dto';
 
 import { CustomersListDto } from './customers-list.dto';
+import { errorRes, failedRes, successRes } from '../Util/response.util';
+import { GetUser } from '../common/decorators/get-user.decorator';
+import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 
 @Controller('customer')
 @UseGuards(AuthGuard)
