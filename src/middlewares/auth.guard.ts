@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import * as jwt from 'jsonwebtoken';
 
-const ACCESS_TOKEN_SECRET = process.env.JWT_ACCESS_SECRET || 'access-secret';
+const ACCESS_TOKEN_SECRET = 'access-secret';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -17,7 +17,7 @@ export class AuthGuard implements CanActivate {
     if (!token) {
       throw new UnauthorizedException('Access token missing');
     }
-
+console.log("ACCESS_TOKEN_SECRET",ACCESS_TOKEN_SECRET)
     try {
       const decoded: any = jwt.verify(token, ACCESS_TOKEN_SECRET);
       console.log('Decoded token:', decoded);
