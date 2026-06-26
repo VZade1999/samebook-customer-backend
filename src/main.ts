@@ -15,7 +15,13 @@ async function bootstrap() {
 
   app.use(
     cors({
-      origin: process.env.CLIENT_DOMAIN,
+      origin: [
+        'http://localhost:5173',
+        'http://localhost:3000',
+        'https://samebook-frontend-dev.vercel.app',           // ✅ production (no trailing slash)
+        'https://samebook-frontend-dev-git-main-vzade1999s-projects.vercel.app', // ✅ no trailing slash
+        'https://samebook-frontend-7509vwpkg-vzade1999s-projects.vercel.app',
+      ],
       allowedHeaders: ConstantsService.CORS.ALLOWED_HEADERS,
       exposedHeaders: ConstantsService.CORS.EXPOSED_HEADERS,
       methods: ConstantsService.CORS.METHODS,
