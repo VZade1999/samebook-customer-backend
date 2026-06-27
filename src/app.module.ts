@@ -11,6 +11,7 @@ import { UsersModule } from './rbac/users/users.module';
 import { RolesModule } from './rbac/roles/roles.module';
 import { PermissionsModule } from './rbac/permissions/permissions.module';
 import { InvoiceModule } from './invoice/invoice.module';
+import { AuthModule } from './auth/auth.module';
 
 //import { AppController } from './app.controller';
 //import { AppService } from './app.service';
@@ -36,6 +37,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     RolesModule,
     PermissionsModule,
     InvoiceModule,
+    AuthModule,
   ],
   //controllers: [AppController],
   //providers: [AppService],

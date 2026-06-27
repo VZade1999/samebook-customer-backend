@@ -50,7 +50,7 @@ export class CustomerController {
   // =====================================================
   // CREATE CUSTOMER
   // =====================================================
-
+  @UseGuards(AuthGuard)
   @Post("/create")
   @UsePipes(
     new ValidationPipe({
@@ -147,7 +147,7 @@ export class CustomerController {
   // =====================================================
   // GET CUSTOMERS LIST
   // =====================================================
-
+  @UseGuards(AuthGuard)
   @Get('/list')
   @UsePipes(
     new ValidationPipe({
@@ -246,7 +246,7 @@ export class CustomerController {
   // =====================================================
   // GET CUSTOMER DETAILS
   // =====================================================
-
+  @UseGuards(AuthGuard)
   @Get('/:id')
   async getCustomerDetails(
     @Req() req: Request,
@@ -319,7 +319,7 @@ export class CustomerController {
   // =====================================================
   // UPDATE CUSTOMER
   // =====================================================
-
+  @UseGuards(AuthGuard)
   @Put('/:id')
   @UsePipes(
     new ValidationPipe({
@@ -406,7 +406,7 @@ export class CustomerController {
   // =====================================================
   // DELETE CUSTOMER
   // =====================================================
-
+  @UseGuards(AuthGuard)
   @Delete('/:id')
   async deleteCustomer(
     @Req() req: Request,

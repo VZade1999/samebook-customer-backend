@@ -31,7 +31,7 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
-  app.useGlobalGuards(new AuthGuard());
+  // app.useGlobalGuards(new AuthGuard());
 
   app.use(
     helmet({

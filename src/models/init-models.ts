@@ -721,6 +721,17 @@ invoice_activity_logs.belongsTo(users, {
   foreignKey: 'changed_by',
 });
 
+  // companies <-> users
+  companies.hasMany(users, {
+    as: 'users',
+    foreignKey: 'company_id',
+  });
+
+  users.belongsTo(companies, {
+    as: 'company',
+    foreignKey: 'company_id',
+  });
+
   return {
     users: users,
     roles: roles,

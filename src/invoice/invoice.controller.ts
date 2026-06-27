@@ -8,6 +8,7 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 
 import { Request, Response } from 'express';
@@ -20,6 +21,7 @@ import { AddPaymentDto } from './dto/addPayment.dto';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 import { GenrateInvoice } from './dto/genrateInvoice.dto';
+import { AuthGuard } from 'src/middlewares/auth.guard';
 
 @Controller('invoice')
 export class InvoiceController {
@@ -27,6 +29,7 @@ export class InvoiceController {
     private readonly invoiceService: InvoiceService,
   ) {}
 
+    @UseGuards(AuthGuard)
  @Get('/list')
 async getInvoices(
   @Query() query: InvoiceListDto,
@@ -38,6 +41,7 @@ async getInvoices(
   );
 }
 
+  @UseGuards(AuthGuard)
 @Get('/:id')
 async getInvoiceDetails(
   @Param('id', ParseIntPipe)
@@ -52,6 +56,7 @@ async getInvoiceDetails(
   );
 }
 
+  @UseGuards(AuthGuard)
   @Post('/generate/:quotationId')
   async generateInvoice(
     @Param(
@@ -69,6 +74,7 @@ async getInvoiceDetails(
   );
   }
 
+    @UseGuards(AuthGuard)
 @Post('/:id/payments')
 async addPayment(
   @Param('id', ParseIntPipe)
@@ -87,12 +93,14 @@ async addPayment(
   );
 }   
 
+  @UseGuards(AuthGuard)
   @Get('/:id/payments')
   async getPayments(
     @Param('id', ParseIntPipe)
     id: number,
   ) {}
 
+    @UseGuards(AuthGuard)
   @Get('/:id/timeline')
 async getInvoiceTimeline(
   @Param('id', ParseIntPipe)
@@ -107,6 +115,7 @@ async getInvoiceTimeline(
   );
 }
 
+  @UseGuards(AuthGuard)
 @Post('/:id/send')
 async sendInvoice(
   @Param('id', ParseIntPipe)

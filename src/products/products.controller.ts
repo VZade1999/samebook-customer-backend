@@ -36,6 +36,7 @@ export class ProductController {
     private readonly appLogger: AppLogger,
   ) {}
 
+    @UseGuards(AuthGuard)
   @Post('/create')
   @UsePipes(ValidationPipe)
   async createProduct(
@@ -63,6 +64,7 @@ export class ProductController {
     }
   }
 
+    @UseGuards(AuthGuard)
   @Get('/list')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async productsList(
@@ -91,6 +93,7 @@ export class ProductController {
     }
   }
 
+    @UseGuards(AuthGuard)
   @Delete('/:id')
   @Post('/delete-product/:id')
   async deleteProduct(
@@ -123,6 +126,7 @@ export class ProductController {
     }
   }
 
+    @UseGuards(AuthGuard)
   @Patch('/:id/activate')
   async activateProduct(
     @Req() req: Request,
@@ -154,6 +158,7 @@ export class ProductController {
     }
   }
 
+    @UseGuards(AuthGuard)
   @Patch('/:id/deactivate')
   async deactivateProduct(
     @Req() req: Request,
@@ -185,6 +190,7 @@ export class ProductController {
     }
   }
 
+    @UseGuards(AuthGuard)
   @Get('/:id')
   async getProductById(
     @Req() req: Request,
@@ -216,7 +222,9 @@ export class ProductController {
     }
   }
 
+    @UseGuards(AuthGuard)
   @Put('/:id')
+    @UseGuards(AuthGuard)
   @Post('/update-product/:id')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async updateProduct(

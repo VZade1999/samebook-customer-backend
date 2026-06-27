@@ -11,6 +11,7 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
@@ -29,6 +30,7 @@ import { UpdateQuotationDto } from './dto/updateQuotation.dto';
 import { QuotationsListDto } from './dto/quotationsList.dto';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 import { GetUser } from '../common/decorators/get-user.decorator';
+import { AuthGuard } from 'src/middlewares/auth.guard';
 
 @Controller('quotation')
 export class QuotationController {
@@ -38,6 +40,7 @@ export class QuotationController {
   ) {}
 
   // GET QUOTATION LIST
+    @UseGuards(AuthGuard)
   @Get('/list')
   async getQuotations(
     @Req() req: Request,
@@ -75,7 +78,9 @@ export class QuotationController {
     }
   }
 
+  
   // GET QUOTATION LIST FOR INVOICE
+    @UseGuards(AuthGuard)
   @Get('/list-for-invoice')
   async getQuotationsForInvoice(
     @Req() req: Request,
@@ -117,7 +122,7 @@ export class QuotationController {
 
 
   // CREATE QUOTATION
-
+  @UseGuards(AuthGuard)
   @Post()
   @UsePipes(ValidationPipe)
   async createQuotation(
@@ -149,7 +154,7 @@ export class QuotationController {
   }
 
   // UPDATE QUOTATION
-
+  @UseGuards(AuthGuard)
   @Put('/:id')
   @UsePipes(
     new ValidationPipe({
@@ -188,7 +193,7 @@ export class QuotationController {
   }
 
   // GET QUOTATION DETAILS
-
+  @UseGuards(AuthGuard)
   @Get('/:id')
   async getQuotationDetails(
     @Req() req: Request,
@@ -209,7 +214,7 @@ export class QuotationController {
   }
 
   // GET QUOTATION HISTORY
-
+  @UseGuards(AuthGuard)
   @Get('/:id/history')
   async getQuotationHistory(
     @Req() req: Request,
@@ -230,7 +235,7 @@ export class QuotationController {
   }
 
   // GET TIMELINE
-
+  @UseGuards(AuthGuard)
   @Get('/:id/timeline')
   async getQuotationTimeline(
     @Req() req: Request,
@@ -251,7 +256,7 @@ export class QuotationController {
   }
 
   // SEND QUOTATION
-
+  @UseGuards(AuthGuard)
   @Post('/:id/send')
   async sendQuotation(
     @Req() req: Request,
@@ -271,7 +276,7 @@ export class QuotationController {
       return errorRes(res, error);
     }
   }
-
+  @UseGuards(AuthGuard)
     @Post('/:id/approve')
   async approveQuotation(
     @Req() req: Request,
@@ -293,7 +298,7 @@ export class QuotationController {
   }
 
   // DELETE QUOTATION
-
+  @UseGuards(AuthGuard)
   @Delete('/:id')
   async deleteQuotation(
     @Req() req: Request,

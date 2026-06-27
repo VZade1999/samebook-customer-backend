@@ -26,6 +26,7 @@ export class RolesController {
   ) {}
 
   @Get('')
+    @UseGuards(AuthGuard)
 //   @RequirePermissions('roles.view')
   async listRoles(
     @Req() req: any,
@@ -43,6 +44,7 @@ export class RolesController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Get('all')
   @RequirePermissions('roles.view')
   async getRoles(@Req() req: any) {
@@ -51,6 +53,7 @@ export class RolesController {
     return this.rolesService.getRoles(companyId);
   }
 
+    @UseGuards(AuthGuard)
   @Get(':id')
   @RequirePermissions('roles.view')
   async getRoleById(
@@ -65,6 +68,7 @@ export class RolesController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Post('create')
 //   @RequirePermissions('roles.create')
   async createRole(
@@ -79,6 +83,7 @@ export class RolesController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Put(':id')
 //   @RequirePermissions('roles.edit')
   async updateRole(
@@ -95,6 +100,7 @@ export class RolesController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Delete(':id')
 //   @RequirePermissions('roles.delete')
   async deleteRole(

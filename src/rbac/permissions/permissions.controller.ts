@@ -10,10 +10,12 @@ import {
   Query,
   Req,
   ParseIntPipe,
+  UseGuards,
 } from '@nestjs/common';
 
 import { PermissionsService } from './permissions.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { AuthGuard } from 'src/middlewares/auth.guard';
 
 
 @Controller('permissions')
@@ -22,6 +24,7 @@ export class PermissionsController {
     private readonly permissionsService: PermissionsService,
   ) {}
 
+    @UseGuards(AuthGuard)
   @Get('list')
   @RequirePermissions('permissions.view')
   async listPermissions(
@@ -37,12 +40,14 @@ export class PermissionsController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Get()
   @RequirePermissions('permissions.view')
   async getPermissions() {
     return this.permissionsService.getPermissions();
   }
 
+    @UseGuards(AuthGuard)
   @Get(':id')
   @RequirePermissions('permissions.view')
   async getPermissionById(
@@ -51,6 +56,7 @@ export class PermissionsController {
     return this.permissionsService.getPermissionById(id);
   }
 
+    @UseGuards(AuthGuard)
   @Post('create')
 //   @RequirePermissions('permissions.create')
   async createPermission(
@@ -61,6 +67,7 @@ export class PermissionsController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Put(':id')
   @RequirePermissions('permissions.edit')
   async updatePermission(
@@ -73,6 +80,7 @@ export class PermissionsController {
     );
   }
 
+    @UseGuards(AuthGuard)
   @Delete(':id')
   @RequirePermissions('permissions.delete')
   async deletePermission(
