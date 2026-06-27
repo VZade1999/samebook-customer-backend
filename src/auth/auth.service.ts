@@ -71,7 +71,7 @@ export class AuthService {
 
     if (!user) {
       log.warn('Login failed — user not found');
-      return { success: false, message: 'Invalid email or password' };
+      return { success: true, message: 'User not registed with this Email address' };
     }
 
     // Enrich all subsequent logs with userId
@@ -87,7 +87,7 @@ export class AuthService {
 
     if (!isMatch) {
       logU.warn('Login failed — password mismatch');
-      return { success: false, message: 'Invalid email or password' };
+      return { success: true, message: 'Invalid email or password' };
     }
 
     let userDetails: any[];
