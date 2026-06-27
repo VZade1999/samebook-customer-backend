@@ -12,6 +12,9 @@ const ACCESS_TOKEN_SECRET = 'access-secret';
 export class AuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
+       console.log('Headers:', request.headers)
+    console.log('Authorization:', request.headers.authorization)
+    console.log('Cookies:', request.headers.cookie)
     const token = request.cookies?.accessToken;
 
     if (!token) {
