@@ -17,7 +17,7 @@ export class CreateQuotationDto {
   @IsNotEmpty()
   @IsNumber()
   @Type(() => Number)
-  company_id: number;
+  company_id!: number;
 
   @IsOptional()
 @IsNumber()
@@ -37,12 +37,12 @@ shipping_address_id?: number;
   @IsNotEmpty()
   @IsNumber()
   @Type(() => Number)
-  customer_id: number;
+  customer_id!: number;
 
   @IsNotEmpty()
   @IsNumber()
   @Type(() => Number)
-  user_id: number;
+  user_id!: number;
 
   @IsOptional()
   @IsDateString()
@@ -67,7 +67,7 @@ shipping_address_id?: number;
 
   @IsNumber()
   @Type(() => Number)
-  sub_total: number;
+  sub_total!: number;
 
   @IsOptional()
   @IsNumber()
@@ -116,12 +116,12 @@ shipping_address_id?: number;
 
   @IsNumber()
   @Type(() => Number)
-  grand_total: number;
+  grand_total!: number;
 
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => QuotationItemDto)
-  items: QuotationItemDto[];
+  items!: QuotationItemDto[];
 
   @IsOptional()
 @IsString()

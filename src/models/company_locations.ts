@@ -6,7 +6,7 @@ export interface company_locationsAttributes {
   company_id: number;
   name?: string;
   location_type?: string;
-  address_id?: number;
+  address_id?: number | null; 
   manager_name?: string;
   manager_phone?: string;
   capacity?: string;

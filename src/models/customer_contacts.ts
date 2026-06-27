@@ -42,6 +42,7 @@ export type customer_contactsId =
 
 export type customer_contactsOptionalAttributes =
   | 'id'
+  | 'first_name'    // ← add
   | 'last_name'
   | 'email'
   | 'phone'

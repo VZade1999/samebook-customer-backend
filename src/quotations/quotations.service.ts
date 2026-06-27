@@ -10,7 +10,11 @@ import {
 import { AppLogger } from '../common/logger/logger.service';
 import { DocumentType } from '../common/enums/document-type.enum';
 import { generateDocumentNumber } from '../common/utils/document-number.util';
-import { quotations, quotationsAttributes } from '../models/quotations';
+import {
+  quotations,
+  quotationsAttributes,
+  quotationsCreationAttributes,
+} from '../models/quotations';
 import { quotation_items } from '../models/quotation-items';
 import { quotation_versions } from '../models/quotation-versions';
 import { customers } from '../models/customers';
@@ -66,48 +70,48 @@ export class QuotationService {
   ): WhereOptions<quotationsAttributes> {
     const conditions: WhereOptions<quotationsAttributes>[] = [];
     if (query.status) {
-    conditions.push({
-      status: query.status,
-      has_invoice: false,
-    });
-  }
+      conditions.push({
+        status: query.status,
+        has_invoice: false,
+      });
+    }
 
-  if (query.search?.trim()) {
-    conditions.push({
-      [Op.or]: [
-        {
-          quotation_number: {
-            [Op.like]: `%${query.search}%`,
+    if (query.search?.trim()) {
+      conditions.push({
+        [Op.or]: [
+          {
+            quotation_number: {
+              [Op.like]: `%${query.search}%`,
+            },
           },
-        },  
-         {
-          status: {
-            [Op.like]: `%${query.search}%`,
+          {
+            status: {
+              [Op.like]: `%${query.search}%`,
+            },
           },
-        },
-        {
-          customer_name: {
-            [Op.like]: `%${query.search}%`,
+          {
+            customer_name: {
+              [Op.like]: `%${query.search}%`,
+            },
           },
-        },
-        {
-          contact_person_name: {
-            [Op.like]: `%${query.search}%`,
+          {
+            contact_person_name: {
+              [Op.like]: `%${query.search}%`,
+            },
           },
-        },
-        {
-          contact_person_email: {
-            [Op.like]: `%${query.search}%`,
+          {
+            contact_person_email: {
+              [Op.like]: `%${query.search}%`,
+            },
           },
-        },
-           {
-          contact_person_phone: {
-            [Op.like]: `%${query.search}%`,
+          {
+            contact_person_phone: {
+              [Op.like]: `%${query.search}%`,
+            },
           },
-        },
-      ],
-    });
-  }
+        ],
+      });
+    }
 
     return conditions.length > 0 ? { [Op.and]: conditions } : {};
   }
@@ -312,7 +316,7 @@ export class QuotationService {
 
   private buildCreateQuotationPayload(
     data: CreateQuotationDto,
-  ): Partial<quotationsAttributes> {
+  ): quotationsCreationAttributes {
     // compute totals from items to avoid trusting client calculations
     const totals = this.computeTotalsFromItems(
       data.items || [],
@@ -496,8 +500,8 @@ export class QuotationService {
   private async createActivityLog(
     quotationId: number,
     action: string,
-    oldValue: object | null,
-    newValue: object | null,
+    oldValue: object | null | undefined,
+    newValue: object | null | undefined,
     changedBy: number | undefined,
     transaction: Transaction,
   ) {
@@ -505,8 +509,8 @@ export class QuotationService {
       {
         quotation_id: quotationId,
         action,
-        old_value: oldValue,
-        new_value: newValue,
+        old_value: oldValue ?? undefined,
+        new_value: newValue ?? undefined,
         changed_by: changedBy,
       },
       { transaction },
@@ -575,14 +579,14 @@ export class QuotationService {
       // Keep customer include only for display purposes; filtering is snapshot-driven on quotations.
       const includeRelations = this.buildQuotationIncludeRelations();
 
-      const [statusCounts, result ] = await Promise.all([
+      const [statusCounts, result] = await Promise.all([
         this.Quotations.findAll({
           attributes: [
             'status',
             [
-              this.Quotations.sequelize.fn(
+              this.dbProvider.sequelize.fn(
                 'COUNT',
-                this.Quotations.sequelize.col('id'),
+                this.dbProvider.sequelize.col('id'),
               ),
               'count',
             ],
@@ -828,6 +832,15 @@ export class QuotationService {
           },
         ],
       });
+
+      if (!customer) {
+        await transaction.rollback();
+        return {
+          success: false,
+          message: `Customer with id ${data.customer_id} not found`,
+          data: null,
+        };
+      }
       const selectedContact = (customer as any).contacts.find(
         (c) => c.id === data.contact_person_id,
       );
@@ -848,7 +861,7 @@ export class QuotationService {
 
       data.contact_person_name = selectedContact
         ? `${selectedContact.first_name} ${selectedContact.last_name}`
-        : null;
+        : undefined;
 
       data.contact_person_email = selectedContact?.email;
 
@@ -1182,10 +1195,10 @@ export class QuotationService {
         ],
         include: [
           {
-              model: this.Users,
+            model: this.Users,
             as: 'changed_by_user',
             attributes: ['id', 'first_name', 'last_name', 'email'],
-          }
+          },
         ],
         order: [['created_at', 'DESC']],
       });

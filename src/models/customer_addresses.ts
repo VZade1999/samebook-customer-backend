@@ -1,12 +1,7 @@
 import * as Sequelize from 'sequelize';
 
-import {
-  DataTypes,
-  Model,
-  Optional,
-} from 'sequelize';
+import { DataTypes, Model, Optional } from 'sequelize';
 import { CUSTOMER_ADDRESS_TYPE } from 'src/customers/customer-address.enum';
-
 
 export interface customer_addressesAttributes {
   id: number;
@@ -46,34 +41,33 @@ export interface customer_addressesAttributes {
   updated_at?: Date;
 }
 
-export type customer_addressesPk =
-  'id';
+export type customer_addressesPk = 'id';
 
-export type customer_addressesId =
-  customer_addresses[customer_addressesPk];
+export type customer_addressesId = customer_addresses[customer_addressesPk];
 
 export type customer_addressesOptionalAttributes =
   | 'id'
+  | 'address_type' // ← add
   | 'label'
   | 'contact_person_name'
   | 'contact_person_phone'
   | 'gst_number'
-  | 'address_line_2'
-  | 'city'
-  | 'state'
-  | 'country'
-  | 'postal_code'
+  | 'address_line_1' // ← add
+  | 'address_line_2' // ← add
+  | 'city' // ← add
+  | 'state' // ← add
+  | 'country' // ← add
+  | 'postal_code' // ← add
   | 'is_primary'
   | 'is_active'
   | 'notes'
   | 'created_at'
   | 'updated_at';
 
-export type customer_addressesCreationAttributes =
-  Optional<
-    customer_addressesAttributes,
-    customer_addressesOptionalAttributes
-  >;
+export type customer_addressesCreationAttributes = Optional<
+  customer_addressesAttributes,
+  customer_addressesOptionalAttributes
+>;
 
 export class customer_addresses
   extends Model<
@@ -86,7 +80,7 @@ export class customer_addresses
 
   customer_id!: number;
 
-address_type!: CUSTOMER_ADDRESS_TYPE;
+  address_type!: CUSTOMER_ADDRESS_TYPE;
 
   label?: string;
 
@@ -118,9 +112,7 @@ address_type!: CUSTOMER_ADDRESS_TYPE;
 
   updated_at?: Date;
 
-  static initModel(
-    sequelize: Sequelize.Sequelize,
-  ): typeof customer_addresses {
+  static initModel(sequelize: Sequelize.Sequelize): typeof customer_addresses {
     return customer_addresses.init(
       {
         id: {
@@ -156,81 +148,61 @@ address_type!: CUSTOMER_ADDRESS_TYPE;
         },
 
         label: {
-          type: DataTypes.STRING(
-            255,
-          ),
+          type: DataTypes.STRING(255),
 
           allowNull: true,
         },
 
         contact_person_name: {
-          type: DataTypes.STRING(
-            255,
-          ),
+          type: DataTypes.STRING(255),
 
           allowNull: true,
         },
 
         contact_person_phone: {
-          type: DataTypes.STRING(
-            50,
-          ),
+          type: DataTypes.STRING(50),
 
           allowNull: true,
         },
 
         gst_number: {
-          type: DataTypes.STRING(
-            100,
-          ),
+          type: DataTypes.STRING(100),
 
           allowNull: true,
         },
 
         address_line_1: {
-          type: DataTypes.STRING(
-            255,
-          ),
+          type: DataTypes.STRING(255),
 
           allowNull: false,
         },
 
         address_line_2: {
-          type: DataTypes.STRING(
-            255,
-          ),
+          type: DataTypes.STRING(255),
 
           allowNull: true,
         },
 
         city: {
-          type: DataTypes.STRING(
-            100,
-          ),
+          type: DataTypes.STRING(100),
 
           allowNull: true,
         },
 
         state: {
-          type: DataTypes.STRING(
-            100,
-          ),
+          type: DataTypes.STRING(100),
 
           allowNull: true,
         },
 
         country: {
-          type: DataTypes.STRING(
-            100,
-          ),
+          type: DataTypes.STRING(100),
 
           allowNull: true,
         },
 
         postal_code: {
-          type: DataTypes.STRING(
-            20,
-          ),
+          type: DataTypes.STRING(20),
 
           allowNull: true,
         },
@@ -262,10 +234,7 @@ address_type!: CUSTOMER_ADDRESS_TYPE;
 
           allowNull: true,
 
-          defaultValue:
-            Sequelize.Sequelize.literal(
-              'CURRENT_TIMESTAMP',
-            ),
+          defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP'),
         },
 
         updated_at: {
@@ -273,18 +242,14 @@ address_type!: CUSTOMER_ADDRESS_TYPE;
 
           allowNull: false,
 
-          defaultValue:
-            Sequelize.Sequelize.literal(
-              'CURRENT_TIMESTAMP',
-            ),
+          defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP'),
         },
       },
 
       {
         sequelize,
 
-        tableName:
-          'customer_addresses',
+        tableName: 'customer_addresses',
 
         underscored: true,
 
@@ -298,9 +263,7 @@ address_type!: CUSTOMER_ADDRESS_TYPE;
 
             using: 'BTREE',
 
-            fields: [
-              { name: 'id' },
-            ],
+            fields: [{ name: 'id' }],
           },
 
           {

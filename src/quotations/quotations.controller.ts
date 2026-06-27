@@ -304,7 +304,7 @@ export class QuotationController {
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
-    @Body('user_id') user_id?: number,
+    @Body('user_id') user_id: number,
   ) {
     try {
       const response = await this.quotationService.deleteQuotation(id, user_id);
