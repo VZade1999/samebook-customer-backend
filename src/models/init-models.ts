@@ -10,6 +10,8 @@ import type {
 } from './user.roles';
 import { permissions as _permissions } from './permissions';
 import type { permissionsAttributes } from './permissions';
+import { refresh_tokens as _refresh_tokens } from './refresh_tokens';
+import type { refresh_tokensAttributes } from './refresh_tokens';
 import {
   role_permissions as _role_permissions,
   role_permissions,
@@ -226,6 +228,7 @@ export {
   _quotation_versions as quotation_versions,
   _customer_contacts as customer_contacts,
   _customer_addresses as customer_addresses,
+  _refresh_tokens as refresh_tokens,
     _invoices as invoices,
   _invoice_items as invoice_items,
   _invoice_payments as invoice_payments,
@@ -254,6 +257,7 @@ export type {
   quotationVersionsAttributes,
   customer_contactsAttributes,
   customer_addressesAttributes,
+  refresh_tokensAttributes,
    invoicesAttributes,
   invoiceItemsAttributes,
   invoicePaymentsAttributes,
@@ -266,6 +270,7 @@ export function initModels(sequelize: Sequelize) {
   const user_roles = _user_roles.initModel(sequelize);
   const permission = _permissions.initModel(sequelize);
   const role_permissions = _role_permissions.initModel(sequelize);
+  const refresh_tokens = _refresh_tokens.initModel(sequelize);
   const customers = _customers.initModel(sequelize);
   const product_categories = _product_categories.initModel(sequelize);
   const products = _products.initModel(sequelize);
@@ -721,6 +726,10 @@ invoice_activity_logs.belongsTo(users, {
   foreignKey: 'changed_by',
 });
 
+  // users <-> refresh_tokens
+  users.hasMany(refresh_tokens, { as: 'refresh_tokens', foreignKey: 'user_id' });
+  refresh_tokens.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
+
   // companies <-> users
   companies.hasMany(users, {
     as: 'users',
@@ -756,6 +765,7 @@ invoice_activity_logs.belongsTo(users, {
     quotation_activity_logs,
     customer_contacts,
     customer_addresses,
+    refresh_tokens,
      invoices,
     invoice_items,
     invoice_payments,

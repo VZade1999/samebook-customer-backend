@@ -4,26 +4,27 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import * as jwt from 'jsonwebtoken';
-
-const ACCESS_TOKEN_SECRET = 'access-secret';
+import { AppLogger } from '../common/logger/logger.service';
+import { verifyAccessToken } from '../auth/jwt.util';
 
 @Injectable()
 export class AuthGuard implements CanActivate {
+  constructor(private readonly appLogger: AppLogger) {}
+
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-       console.log('Headers:', request.headers)
-    console.log('Authorization:', request.headers.authorization)
-    console.log('Cookies:', request.headers.cookie)
-    const token = request.cookies?.accessToken;
+    const log = this.appLogger.forContext('AuthGuard', 'canActivate', {
+      ip: request.ip ?? request.socket?.remoteAddress ?? 'unknown',
+    });
 
+    const token = request.cookies?.accessToken;
     if (!token) {
+      log.warn('Rejected — access token missing');
       throw new UnauthorizedException('Access token missing');
     }
-console.log("ACCESS_TOKEN_SECRET",ACCESS_TOKEN_SECRET)
+
     try {
-      const decoded: any = jwt.verify(token, ACCESS_TOKEN_SECRET);
-      console.log('Decoded token:', decoded);
+      const decoded = verifyAccessToken(token);
       request.user = {
         user_id: decoded.userId,
         company_id: decoded.companyId,
@@ -31,10 +32,9 @@ console.log("ACCESS_TOKEN_SECRET",ACCESS_TOKEN_SECRET)
         permissions: decoded.permissions || [],
         roles: decoded.roles || [],
       };
-
       return true;
     } catch (error) {
-      console.error('AuthGuard error:', error);
+      log.warn('Rejected — invalid or expired token');
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

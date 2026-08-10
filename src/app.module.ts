@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { DatabaseModule } from './Database/database.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { CustomerModule } from './customers/customers.module';
@@ -12,6 +14,7 @@ import { RolesModule } from './rbac/roles/roles.module';
 import { PermissionsModule } from './rbac/permissions/permissions.module';
 import { InvoiceModule } from './invoice/invoice.module';
 import { AuthModule } from './auth/auth.module';
+import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
 //import { AppService } from './app.service';
@@ -26,6 +29,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
       envFilePath: '.env.local',
       ignoreEnvFile: ignoreLoadEnvFile,
     }),
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 100 }]),
     CustomerModule,
     CompanyModule,
     ProductModule,
@@ -40,6 +44,6 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     AuthModule,
   ],
   //controllers: [AppController],
-  //providers: [AppService],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],
 })
 export class AppModule {}

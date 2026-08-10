@@ -6,15 +6,15 @@ import {
   Req,
   Res,
   Body,
-  HttpException,
-  HttpStatus,
   Get,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 
 import { AppLogger } from '../common/logger/logger.service';
 import { errorRes, failedRes, successRes } from 'src/Util/response.util';
+import { getCookieOptions } from './cookie.util';
 import { AuthDto } from './dto/auth.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -31,25 +31,18 @@ export class AuthController {
     private readonly appLogger: AppLogger,
   ) {}
 
-   @Get('/health-check')
+  @Get('/health-check')
   @UsePipes(ValidationPipe)
-  async healthCheck(
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-
-
-    
+  async healthCheck(@Req() req: Request, @Res() res: Response) {
     try {
-
-  
-      return successRes(res, "Health Check success", {});
+      return successRes(res, 'Health Check success', {});
     } catch (error) {
       return errorRes(res, error);
     }
   }
 
   @Post('/login')
+  @Throttle({ default: { limit: 15, ttl: 60000 } })
   @UsePipes(ValidationPipe)
   async login(
     @Req() req: Request,
@@ -67,30 +60,10 @@ export class AuthController {
       const response = await this.authService.login(username, password);
       if (!response.success) {
         log.warn(`Auth rejected — ${response.message}`);
-        return failedRes(res, response.message);
+        return failedRes(res, response.message, 401);
       }
-      res.cookie('accessToken', response.data?.accessToken, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        //maxAge: 15 * 60 * 1000, // 15 mins
-        maxAge:  7 * 24 * 60 * 60 * 1000,
-      });
-
-      res.cookie('refreshToken', response.data?.refreshToken, {
-         httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
-
-      res.cookie('permissions', response.data?.user.permissions, {
-       httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        //maxAge: 15 * 60 * 1000, // 15 mins
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      });
+      res.cookie('accessToken', response.data?.accessToken, getCookieOptions('access'));
+      res.cookie('refreshToken', response.data?.refreshToken, getCookieOptions('refresh'));
       log.info('Response sent successfully');
       return successRes(res, response.message, response.data);
     } catch (error) {
@@ -100,6 +73,7 @@ export class AuthController {
   }
 
   @Post('/register')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UsePipes(ValidationPipe)
   async register(
     @Req() req: Request,
@@ -140,6 +114,36 @@ export class AuthController {
     }
   }
 
+  @Post('/refresh')
+  async refresh(@Req() req: Request, @Res() res: Response) {
+    const log = this.appLogger.forContext('AuthController', 'refresh', {
+      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+    });
+
+    const refreshToken = req.cookies?.refreshToken;
+    if (!refreshToken) {
+      log.warn('Refresh rejected — cookie missing');
+      return failedRes(res, 'Refresh token missing', 401);
+    }
+
+    try {
+      const response = await this.authService.refresh(refreshToken);
+      if (!response.success) {
+        log.warn(`Refresh rejected — ${response.message}`);
+        res.clearCookie('accessToken', getCookieOptions('access'));
+        res.clearCookie('refreshToken', getCookieOptions('refresh'));
+        return failedRes(res, response.message, 401);
+      }
+      res.cookie('accessToken', response.data?.accessToken, getCookieOptions('access'));
+      res.cookie('refreshToken', response.data?.refreshToken, getCookieOptions('refresh'));
+      log.info('Refresh successful');
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      log.error('Unhandled error in refresh', error);
+      return errorRes(res, error);
+    }
+  }
+
   @Post('/logout')
   async logout(@Req() req: Request, @Res() res: Response) {
     const log = this.appLogger.forContext('AuthController', 'logout', {
@@ -149,33 +153,15 @@ export class AuthController {
     log.info('Logout request received');
 
     try {
-      const response = await this.authService.logout();
+      const response = await this.authService.logout(req.cookies?.refreshToken);
 
       if (!response.success) {
         log.warn(`Logout failed — ${response.message}`);
-
         return failedRes(res, response.message);
       }
-      res.clearCookie('accessToken', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-      });
 
-      res.clearCookie('refreshToken', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-      });
-
-      res.clearCookie('permissions', {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'strict',
-        path: '/',
-      });
+      res.clearCookie('accessToken', getCookieOptions('access'));
+      res.clearCookie('refreshToken', getCookieOptions('refresh'));
 
       log.info('Logout successful');
 

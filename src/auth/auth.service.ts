@@ -1,21 +1,31 @@
-import {
-  Inject,
-  Injectable,
-  UnauthorizedException,
-  Logger,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { users } from '../models/users';
 import { user_roles } from '../models/user.roles';
 import { role_permissions } from '../models/role.permissions';
 import { permissions } from '../models/permissions';
 import { roles } from '../models/roles';
+import { refresh_tokens } from '../models/refresh_tokens';
 
 import * as bcrypt from 'bcrypt';
 import { AppLogger } from '../common/logger/logger.service';
 import { companies } from '../models/companies';
-import { generateAccessToken, generateRefreshToken } from 'src/Util/response.util';
+import {
+  TokenPayload,
+  REFRESH_TOKEN_TTL_MS,
+  hashToken,
+  signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
+} from './jwt.util';
 
-
+const COMPANY_ATTRIBUTES = [
+  'id',
+  'name',
+  'primary_email',
+  'primary_phone',
+  'default_terms_conditions',
+  'logo',
+];
 
 @Injectable()
 export class AuthService {
@@ -25,6 +35,7 @@ export class AuthService {
   private readonly Permissions: typeof permissions;
   private readonly Roles: typeof roles;
   private readonly Companies: typeof companies;
+  private readonly RefreshTokens: typeof refresh_tokens;
 
   constructor(
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
@@ -36,6 +47,51 @@ export class AuthService {
     this.Permissions = this.dbProvider.db.permission;
     this.Roles = this.dbProvider.db.roles;
     this.Companies = this.dbProvider.db.companies;
+    this.RefreshTokens = this.dbProvider.db.refresh_tokens;
+  }
+
+  private async loadRolesAndPermissions(userId: number) {
+    const userRoleRows: any[] = await this.UserRole.findAll({
+      where: { user_id: userId },
+      include: [
+        {
+          model: this.Roles,
+          as: 'role',
+          include: [
+            {
+              model: this.RolePermissions,
+              as: 'role_permissions',
+              include: [{ model: this.Permissions, as: 'permission' }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const roleNames: string[] = userRoleRows
+      .map((i: any) => i.role?.name)
+      .filter(Boolean);
+
+    const permissionNames: string[] = [
+      ...new Set(
+        userRoleRows.flatMap(
+          (i: any) =>
+            i.role?.role_permissions
+              ?.map((rp: any) => rp.permission?.name)
+              .filter(Boolean) ?? [],
+        ),
+      ),
+    ];
+
+    return { roleNames, permissionNames };
+  }
+
+  private async persistRefreshToken(userId: number, refreshToken: string) {
+    await this.RefreshTokens.create({
+      user_id: userId,
+      token_hash: hashToken(refreshToken),
+      expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+    });
   }
 
   async login(username: string, password: string) {
@@ -48,20 +104,8 @@ export class AuthService {
     try {
       user = await this.Users.findOne({
         where: { email: username },
-
         include: [
-          {
-            model: this.Companies,
-            as: 'company',
-            attributes: [
-              'id',
-              'name',
-              'primary_email',
-              'primary_phone',
-              'default_terms_conditions',
-              'logo',
-            ],
-          },
+          { model: this.Companies, as: 'company', attributes: COMPANY_ATTRIBUTES },
         ],
       });
     } catch (err) {
@@ -71,10 +115,9 @@ export class AuthService {
 
     if (!user) {
       log.warn('Login failed — user not found');
-      return { success: true, message: 'User not registed with this Email address' };
+      return { success: false, message: 'User not registed with this Email address' };
     }
 
-    // Enrich all subsequent logs with userId
     const logU = log.enrich({ userId: user.id });
 
     let isMatch = false;
@@ -87,53 +130,32 @@ export class AuthService {
 
     if (!isMatch) {
       logU.warn('Login failed — password mismatch');
-      return { success: true, message: 'Invalid email or password' };
+      return { success: false, message: 'Invalid email or password' };
     }
 
-    let userDetails: any[];
+    if (!user.is_active) {
+      logU.warn('Login failed — inactive user');
+      return {
+        success: false,
+        message: 'Your account has been deactivated. Contact your administrator.',
+      };
+    }
+
+    let roleNames: string[];
+    let permissionNames: string[];
     try {
-      userDetails = await this.UserRole.findAll({
-        where: { user_id: user.id },
-        include: [
-          {
-            model: this.Roles,
-            as: 'role',
-            include: [
-              {
-                model: this.RolePermissions,
-                as: 'role_permissions',
-                include: [{ model: this.Permissions, as: 'permission' }],
-              },
-            ],
-          },
-        ],
-      });
+      ({ roleNames, permissionNames } = await this.loadRolesAndPermissions(user.id));
     } catch (err) {
       logU.error('DB error while fetching roles', err);
       throw new Error('DATABASE_ERROR');
     }
-
-    const roleNames: string[] = userDetails
-      .map((i: any) => i.role?.name)
-      .filter(Boolean);
-
-    const permissionNames: string[] = [
-      ...new Set(
-        userDetails.flatMap(
-          (i: any) =>
-            i.role?.role_permissions
-              ?.map((rp: any) => rp.permission?.name)
-              .filter(Boolean) ?? [],
-        ),
-      ),
-    ];
 
     logU.debug('Roles resolved', {
       roles: roleNames.join(','),
       permissionCount: permissionNames.length,
     });
 
-    const payload = {
+    const payload: TokenPayload = {
       userId: user.id,
       companyId: user.company_id,
       email: user.email,
@@ -144,10 +166,17 @@ export class AuthService {
     let refreshToken: string;
 
     try {
-      accessToken = generateAccessToken(payload);
-      refreshToken = generateRefreshToken(payload);
+      accessToken = signAccessToken(payload);
+      refreshToken = signRefreshToken(payload);
     } catch (err) {
       logU.error('Token generation failed', err);
+      throw new Error('TOKEN_GENERATION_ERROR');
+    }
+
+    try {
+      await this.persistRefreshToken(user.id, refreshToken);
+    } catch (err) {
+      logU.error('Failed to persist refresh token', err);
       throw new Error('TOKEN_GENERATION_ERROR');
     }
 
@@ -256,18 +285,103 @@ export class AuthService {
     };
   }
 
-  async logout(userId?: number) {
-    const log = this.appLogger.forContext('AuthService', 'logout', {
-      userId,
+  async refresh(refreshTokenCookie: string) {
+    const log = this.appLogger.forContext('AuthService', 'refresh', {});
+
+    let decoded: TokenPayload;
+    try {
+      decoded = verifyRefreshToken(refreshTokenCookie);
+    } catch (err) {
+      log.warn('Refresh rejected — invalid or expired JWT signature');
+      return { success: false, message: 'Invalid or expired refresh token' };
+    }
+
+    const tokenHash = hashToken(refreshTokenCookie);
+    const record: any = await this.RefreshTokens.findOne({ where: { token_hash: tokenHash } });
+
+    if (!record) {
+      log.warn('Refresh rejected — token not found in DB', { userId: decoded.userId });
+      return { success: false, message: 'Refresh token not recognized' };
+    }
+
+    if (record.revoked_at) {
+      // A revoked token being presented again is a reuse/theft signal — kill
+      // every active session for this user defensively.
+      await this.RefreshTokens.update(
+        { revoked_at: new Date() },
+        { where: { user_id: record.user_id, revoked_at: null } },
+      );
+      log.warn('Refresh token REUSE detected — all sessions revoked', {
+        userId: record.user_id,
+      });
+      return { success: false, message: 'Session invalidated. Please log in again.' };
+    }
+
+    if (new Date(record.expires_at).getTime() < Date.now()) {
+      log.warn('Refresh rejected — DB record expired', { userId: record.user_id });
+      return { success: false, message: 'Refresh token expired' };
+    }
+
+    const user: any = await this.Users.findOne({
+      where: { id: record.user_id },
+      include: [
+        { model: this.Companies, as: 'company', attributes: COMPANY_ATTRIBUTES },
+      ],
+    });
+    if (!user || !user.is_active) {
+      log.warn('Refresh rejected — user missing/inactive', { userId: record.user_id });
+      return { success: false, message: 'Account is inactive' };
+    }
+
+    const { roleNames, permissionNames } = await this.loadRolesAndPermissions(user.id);
+    const payload: TokenPayload = {
+      userId: user.id,
+      companyId: user.company_id,
+      email: user.email,
+      roles: roleNames,
+      permissions: permissionNames,
+    };
+
+    const newAccessToken = signAccessToken(payload);
+    const newRefreshToken = signRefreshToken(payload);
+    const newHash = hashToken(newRefreshToken);
+
+    await this.dbProvider.sequelize.transaction(async (t: any) => {
+      await record.update(
+        { revoked_at: new Date(), replaced_by_token_hash: newHash },
+        { transaction: t },
+      );
+      await this.RefreshTokens.create(
+        {
+          user_id: user.id,
+          token_hash: newHash,
+          expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+        },
+        { transaction: t },
+      );
     });
 
+    log.info('Refresh successful', { userId: user.id });
+    return {
+      success: true,
+      message: 'Token refreshed',
+      data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
+    };
+  }
+
+  async logout(refreshTokenCookie?: string) {
+    const log = this.appLogger.forContext('AuthService', 'logout', {});
     log.info('Logout attempt started');
 
     try {
-      return {
-        success: true,
-        message: 'Logout successful',
-      };
+      if (refreshTokenCookie) {
+        const tokenHash = hashToken(refreshTokenCookie);
+        await this.RefreshTokens.update(
+          { revoked_at: new Date() },
+          { where: { token_hash: tokenHash, revoked_at: null } },
+        );
+      }
+      return { success: true, message: 'Logout successful' };
     } catch (err) {
       log.error('Logout failed', err);
       throw new Error('LOGOUT_ERROR');
