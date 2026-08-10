@@ -12,6 +12,8 @@ import { permissions as _permissions } from './permissions';
 import type { permissionsAttributes } from './permissions';
 import { refresh_tokens as _refresh_tokens } from './refresh_tokens';
 import type { refresh_tokensAttributes } from './refresh_tokens';
+import { callback_requests as _callback_requests } from './callback_requests';
+import type { callback_requestsAttributes } from './callback_requests';
 import {
   role_permissions as _role_permissions,
   role_permissions,
@@ -229,6 +231,7 @@ export {
   _customer_contacts as customer_contacts,
   _customer_addresses as customer_addresses,
   _refresh_tokens as refresh_tokens,
+  _callback_requests as callback_requests,
     _invoices as invoices,
   _invoice_items as invoice_items,
   _invoice_payments as invoice_payments,
@@ -258,6 +261,7 @@ export type {
   customer_contactsAttributes,
   customer_addressesAttributes,
   refresh_tokensAttributes,
+  callback_requestsAttributes,
    invoicesAttributes,
   invoiceItemsAttributes,
   invoicePaymentsAttributes,
@@ -271,6 +275,7 @@ export function initModels(sequelize: Sequelize) {
   const permission = _permissions.initModel(sequelize);
   const role_permissions = _role_permissions.initModel(sequelize);
   const refresh_tokens = _refresh_tokens.initModel(sequelize);
+  const callback_requests = _callback_requests.initModel(sequelize);
   const customers = _customers.initModel(sequelize);
   const product_categories = _product_categories.initModel(sequelize);
   const products = _products.initModel(sequelize);
@@ -766,6 +771,7 @@ invoice_activity_logs.belongsTo(users, {
     customer_contacts,
     customer_addresses,
     refresh_tokens,
+    callback_requests,
      invoices,
     invoice_items,
     invoice_payments,
