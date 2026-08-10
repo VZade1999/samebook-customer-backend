@@ -6,10 +6,12 @@ import {
   Body,
   ParseIntPipe,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 
 import { UserRolesService } from './user-roles.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { AuthGuard } from 'src/middlewares/auth.guard';
 
 @Controller('users')
 export class UserRolesController {
@@ -17,6 +19,7 @@ export class UserRolesController {
     private readonly userRolesService: UserRolesService,
   ) {}
 
+  @UseGuards(AuthGuard)
   @Get(':id/roles')
   @RequirePermissions('users.view')
   async getUserRoles(
@@ -31,6 +34,7 @@ export class UserRolesController {
     );
   }
 
+  @UseGuards(AuthGuard)
   @Post(':id/roles')
   @RequirePermissions('users.edit')
   async assignRoles(
