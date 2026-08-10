@@ -127,9 +127,15 @@ export class AuthController {
     }
 
     try {
-      const response = await this.authService.refresh(refreshToken);
+      const response: any = await this.authService.refresh(refreshToken);
       if (!response.success) {
         log.warn(`Refresh rejected — ${response.message}`);
+        if (response.transient) {
+          // A temporary DB/connection hiccup, not an invalid session — leave
+          // the still-valid cookies alone so the user isn't force-logged-out
+          // over an infrastructure blip; they (or the frontend) can just retry.
+          return failedRes(res, response.message, 503);
+        }
         res.clearCookie('accessToken', getCookieOptions('access'));
         res.clearCookie('refreshToken', getCookieOptions('refresh'));
         return failedRes(res, response.message, 401);

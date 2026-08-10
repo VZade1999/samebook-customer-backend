@@ -12,10 +12,9 @@ export const databaseProviders = [
     provide: 'DATABASE_CONNECTION',
     useFactory: async (config: ConfigService): Promise<any> => {
       try {
-        console.log('SSM Config FROM ECS', {
+        console.log('DB connection config', {
           name: config.get('DB_NAME'),
           user: config.get('DB_USER'),
-          pass: config.get('DB_PASS'),
           host: config.get('DB_HOST'),
         });
         // if (!NODE_ENV || NODE_ENV === 'local') {
@@ -31,10 +30,41 @@ export const databaseProviders = [
             define: {
               timestamps: true,
             },
+            dialectOptions: {
+              connectTimeout: 20000,
+              enableKeepAlive: true,
+              keepAliveInitialDelay: 0,
+            },
             pool: {
-              max: 5,
+              // Each serverless invocation gets its own pool, so a large max
+              // buys nothing and just multiplies total connections opened
+              // against the DB under concurrent cold starts.
+              max: 3,
               min: 0,
-              idle: 20000,
+              // Shorter than most shared-hosting MySQL `wait_timeout` values —
+              // recycle a pooled connection before the remote host silently
+              // kills it server-side. A pool that thinks a dead connection is
+              // still valid is what actually produces ETIMEDOUT/hangs on the
+              // next query, not a fresh connect attempt.
+              idle: 10000,
+              evict: 15000,
+              acquire: 20000,
+            },
+            retry: {
+              max: 3,
+              match: [
+                /ETIMEDOUT/,
+                /ECONNRESET/,
+                /ECONNREFUSED/,
+                /EHOSTUNREACH/,
+                /ENOTFOUND/,
+                /SequelizeConnectionError/,
+                /SequelizeConnectionRefusedError/,
+                /SequelizeHostNotFoundError/,
+                /SequelizeHostNotReachableError/,
+                /SequelizeInvalidConnectionError/,
+                /SequelizeConnectionTimedOutError/,
+              ],
             },
           },
         );

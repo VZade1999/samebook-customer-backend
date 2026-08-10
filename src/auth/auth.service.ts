@@ -297,76 +297,92 @@ export class AuthService {
     }
 
     const tokenHash = hashToken(refreshTokenCookie);
-    const record: any = await this.RefreshTokens.findOne({ where: { token_hash: tokenHash } });
 
-    if (!record) {
-      log.warn('Refresh rejected — token not found in DB', { userId: decoded.userId });
-      return { success: false, message: 'Refresh token not recognized' };
-    }
+    try {
+      const record: any = await this.RefreshTokens.findOne({ where: { token_hash: tokenHash } });
 
-    if (record.revoked_at) {
-      // A revoked token being presented again is a reuse/theft signal — kill
-      // every active session for this user defensively.
-      await this.RefreshTokens.update(
-        { revoked_at: new Date() },
-        { where: { user_id: record.user_id, revoked_at: null } },
-      );
-      log.warn('Refresh token REUSE detected — all sessions revoked', {
-        userId: record.user_id,
+      if (!record) {
+        log.warn('Refresh rejected — token not found in DB', { userId: decoded.userId });
+        return { success: false, message: 'Refresh token not recognized' };
+      }
+
+      if (record.revoked_at) {
+        // A revoked token being presented again is a reuse/theft signal — kill
+        // every active session for this user defensively.
+        await this.RefreshTokens.update(
+          { revoked_at: new Date() },
+          { where: { user_id: record.user_id, revoked_at: null } },
+        );
+        log.warn('Refresh token REUSE detected — all sessions revoked', {
+          userId: record.user_id,
+        });
+        return { success: false, message: 'Session invalidated. Please log in again.' };
+      }
+
+      if (new Date(record.expires_at).getTime() < Date.now()) {
+        log.warn('Refresh rejected — DB record expired', { userId: record.user_id });
+        return { success: false, message: 'Refresh token expired' };
+      }
+
+      const user: any = await this.Users.findOne({
+        where: { id: record.user_id },
+        include: [
+          { model: this.Companies, as: 'company', attributes: COMPANY_ATTRIBUTES },
+        ],
       });
-      return { success: false, message: 'Session invalidated. Please log in again.' };
+      if (!user || !user.is_active) {
+        log.warn('Refresh rejected — user missing/inactive', { userId: record.user_id });
+        return { success: false, message: 'Account is inactive' };
+      }
+
+      const { roleNames, permissionNames } = await this.loadRolesAndPermissions(user.id);
+      const payload: TokenPayload = {
+        userId: user.id,
+        companyId: user.company_id,
+        email: user.email,
+        roles: roleNames,
+        permissions: permissionNames,
+      };
+
+      const newAccessToken = signAccessToken(payload);
+      const newRefreshToken = signRefreshToken(payload);
+      const newHash = hashToken(newRefreshToken);
+
+      await this.dbProvider.sequelize.transaction(async (t: any) => {
+        await record.update(
+          { revoked_at: new Date(), replaced_by_token_hash: newHash },
+          { transaction: t },
+        );
+        await this.RefreshTokens.create(
+          {
+            user_id: user.id,
+            token_hash: newHash,
+            expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+          },
+          { transaction: t },
+        );
+      });
+
+      log.info('Refresh successful', { userId: user.id });
+      return {
+        success: true,
+        message: 'Token refreshed',
+        data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
+      };
+    } catch (err) {
+      // Transient DB/connection errors land here (see database.provider.ts
+      // for the connection-pool hardening + auto-retry that should keep most
+      // of these from ever reaching this point). Fail as a clean, expected
+      // 401 rather than an opaque 500 — the frontend already treats a failed
+      // refresh as "session ended, go to login" either way, but this keeps
+      // the response consistent with every other auth failure path.
+      log.error('DB error during refresh', err);
+      return {
+        success: false,
+        transient: true,
+        message: 'Service temporarily unavailable. Please try again.',
+      };
     }
-
-    if (new Date(record.expires_at).getTime() < Date.now()) {
-      log.warn('Refresh rejected — DB record expired', { userId: record.user_id });
-      return { success: false, message: 'Refresh token expired' };
-    }
-
-    const user: any = await this.Users.findOne({
-      where: { id: record.user_id },
-      include: [
-        { model: this.Companies, as: 'company', attributes: COMPANY_ATTRIBUTES },
-      ],
-    });
-    if (!user || !user.is_active) {
-      log.warn('Refresh rejected — user missing/inactive', { userId: record.user_id });
-      return { success: false, message: 'Account is inactive' };
-    }
-
-    const { roleNames, permissionNames } = await this.loadRolesAndPermissions(user.id);
-    const payload: TokenPayload = {
-      userId: user.id,
-      companyId: user.company_id,
-      email: user.email,
-      roles: roleNames,
-      permissions: permissionNames,
-    };
-
-    const newAccessToken = signAccessToken(payload);
-    const newRefreshToken = signRefreshToken(payload);
-    const newHash = hashToken(newRefreshToken);
-
-    await this.dbProvider.sequelize.transaction(async (t: any) => {
-      await record.update(
-        { revoked_at: new Date(), replaced_by_token_hash: newHash },
-        { transaction: t },
-      );
-      await this.RefreshTokens.create(
-        {
-          user_id: user.id,
-          token_hash: newHash,
-          expires_at: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
-        },
-        { transaction: t },
-      );
-    });
-
-    log.info('Refresh successful', { userId: user.id });
-    return {
-      success: true,
-      message: 'Token refreshed',
-      data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
-    };
   }
 
   async logout(refreshTokenCookie?: string) {
