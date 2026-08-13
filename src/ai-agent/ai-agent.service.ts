@@ -3,7 +3,7 @@ import { AppLogger } from 'src/common/logger/logger.service';
 import { ChatDto } from './dto/chat.dto';
 import { CustomerService } from 'src/customers/customers.service';
 import { ProductService } from 'src/products/products.service';
-import { CompanyService } from 'src/companies/companies.service';
+import { CompanyService, CompanyRequester } from 'src/companies/companies.service';
 import { QuotationService } from 'src/quotations/quotations.service';
 import Groq from 'groq-sdk';
 
@@ -235,145 +235,73 @@ export class AiAgentService {
       },
     },
 
-    // ── GET COMPANIES ───────────────────────────────────────────────────
+    // ── GET MY COMPANY DETAILS ────────────────────────────────────────────
+    // Self-service only: this app has no cross-company listing, creation, or
+    // deletion, so these tools always operate on the caller's own company —
+    // no company ID is ever accepted from the model or the user.
     {
       type: 'function',
       function: {
-        name: 'get_companies_list',
-        description: `Fetch a list of companies from the database.
-                      Use this when the user asks to list, search, or find companies.
-                      All parameters are optional — only pass what the user mentions.`,
+        name: 'get_company_details',
+        description: `Get the current user's own company details.
+                      Use this when the user asks about their company's info, GST, address, etc.`,
         parameters: {
           type: 'object',
-          properties: {
-            name:   { type: 'string', description: 'Filter by company name (partial match)' },
-            email:  { type: 'string', description: 'Filter by email (partial match)' },
-            phone:  { type: 'string', description: 'Filter by phone (partial match)' },
-            city:   { type: 'string', description: 'Filter by city (partial match)' },
-            page:   { type: 'number', description: 'Page number (default: 1)' },
-            limit:  { type: 'number', description: 'Records per page (default: 10)' },
-          },
+          properties: {},
           required: [],
         },
       },
     },
 
-    // ── CREATE COMPANY ───────────────────────────────────────────────────
-    {
-      type: 'function',
-      function: {
-        name: 'create_company',
-        description: `Create a new company in the database.
-                      Use this when the user wants to add or create a new company.
-                      name is required.`,
-        parameters: {
-          type: 'object',
-          properties: {
-            name:           { type: 'string', description: 'Company name' },
-            email:          { type: 'string', description: 'Company email' },
-            phone:          { type: 'string', description: 'Company phone' },
-            address_line_1: { type: 'string', description: 'Address line 1' },
-            address_line_2: { type: 'string', description: 'Address line 2' },
-            city:           { type: 'string', description: 'City' },
-            state:          { type: 'string', description: 'State' },
-            country:        { type: 'string', description: 'Country' },
-            postal_code:    { type: 'string', description: 'Postal code' },
-          },
-          required: ['name'],
-        },
-      },
-    },
-
-    // ── GET COMPANY DETAILS ──────────────────────────────────────────────
-    {
-      type: 'function',
-      function: {
-        name: 'get_company_details',
-        description: `Get details of a specific company by ID.
-                      Use this when the user asks for detailed info about a company.`,
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'number', description: 'The company ID' },
-          },
-          required: ['id'],
-        },
-      },
-    },
-
-    // ── GET COMPANY ADDRESSES ────────────────────────────────────────────
+    // ── GET MY COMPANY ADDRESSES ─────────────────────────────────────────
     {
       type: 'function',
       function: {
         name: 'get_company_addresses',
-        description: `Get all addresses associated with a company by company ID.`,
+        description: `Get all addresses for the current user's own company.`,
         parameters: {
           type: 'object',
-          properties: {
-            id: { type: 'number', description: 'The company ID' },
-          },
-          required: ['id'],
+          properties: {},
+          required: [],
         },
       },
     },
 
-    // ── GET COMPANY LOCATIONS ────────────────────────────────────────────
+    // ── GET MY COMPANY LOCATIONS ─────────────────────────────────────────
     {
       type: 'function',
       function: {
         name: 'get_company_locations',
-        description: `Get all locations associated with a company by company ID.`,
+        description: `Get all locations for the current user's own company.`,
         parameters: {
           type: 'object',
-          properties: {
-            id: { type: 'number', description: 'The company ID' },
-          },
-          required: ['id'],
+          properties: {},
+          required: [],
         },
       },
     },
 
-    // ── UPDATE COMPANY ───────────────────────────────────────────────────
+    // ── UPDATE MY COMPANY ────────────────────────────────────────────────
     {
       type: 'function',
       function: {
         name: 'update_company',
-        description: `Update an existing company's details by its ID.
-                      Use this when the user wants to edit or update a company.
-                      id is required. All other fields are optional.`,
+        description: `Update the current user's own company details.
+                      Use this when the user wants to edit their company's info.
+                      All fields are optional — only pass what the user wants changed.`,
         parameters: {
           type: 'object',
           properties: {
-            id:             { type: 'number', description: 'The company ID' },
-            name:           { type: 'string', description: 'New company name' },
-            email:          { type: 'string', description: 'New email' },
-            phone:          { type: 'string', description: 'New phone' },
-            address_line_1: { type: 'string', description: 'New address line 1' },
-            address_line_2: { type: 'string', description: 'New address line 2' },
-            city:           { type: 'string', description: 'New city' },
-            state:          { type: 'string', description: 'New state' },
-            country:        { type: 'string', description: 'New country' },
-            postal_code:    { type: 'string', description: 'New postal code' },
+            name:                     { type: 'string', description: 'New company name' },
+            legal_name:               { type: 'string', description: 'New legal name' },
+            gst_no:                   { type: 'string', description: 'New GST number' },
+            website:                  { type: 'string', description: 'New website' },
+            industry:                 { type: 'string', description: 'New industry' },
+            primary_email:            { type: 'string', description: 'New primary email' },
+            primary_phone:            { type: 'string', description: 'New primary phone' },
+            default_terms_conditions: { type: 'string', description: 'New default terms & conditions' },
           },
-          required: ['id'],
-        },
-      },
-    },
-
-    // ── DELETE COMPANY ───────────────────────────────────────────────────
-    {
-      type: 'function',
-      function: {
-        name: 'delete_company',
-        description: `Delete a company by its ID.
-                      Use this when the user wants to remove or delete a company.
-                      Always confirm the company ID before deleting.`,
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'number', description: 'The company ID to delete' },
-          },
-          required: ['id'],
+          required: [],
         },
       },
     },
@@ -532,9 +460,21 @@ export class AiAgentService {
   // TOOL EXECUTOR
   // =========================
 
-  private async executeTool(name: string, args: any, currentUser: { company_id: number; user_id: number }): Promise<string> {
+  private async executeTool(
+    name: string,
+    args: any,
+    currentUser: { company_id: number; user_id: number; permissions?: string[] },
+  ): Promise<string> {
     const log = this.appLogger.forContext('AiAgentService', 'executeTool', { tool: name });
     log.info(`Executing tool: ${name}`, { args });
+
+    // Same identity context the Companies controller builds from the JWT —
+    // the AI agent calls companyService directly, bypassing that controller
+    // entirely, so this module must derive it independently. Self-service
+    // only: always the caller's own company, never another one.
+    const companyRequester: CompanyRequester = {
+      companyId: currentUser.company_id,
+    };
 
     try {
       switch (name) {
@@ -613,25 +553,9 @@ export class AiAgentService {
           });
         }
 
-        // ── GET COMPANIES ──────────────────────────────────────────────────
-        case 'get_companies_list': {
-          const result = await this.companyService.getCompaniesList(args);
-          return JSON.stringify(result.data);
-        }
-
-        // ── CREATE COMPANY ────────────────────────────────────────────────
-        case 'create_company': {
-          const result = await this.companyService.createCompany(args);
-          return JSON.stringify({
-            success: result.success,
-            message: result.message,
-            data: result.data ?? null,
-          });
-        }
-
-        // ── GET COMPANY DETAILS ──────────────────────────────────────────
+        // ── GET MY COMPANY DETAILS ────────────────────────────────────────
         case 'get_company_details': {
-          const result = await this.companyService.getCompanyById(args.id);
+          const result = await this.companyService.getCompanyById(currentUser.company_id, companyRequester);
           return JSON.stringify({
             success: result.success,
             message: result.message,
@@ -639,9 +563,9 @@ export class AiAgentService {
           });
         }
 
-        // ── GET COMPANY ADDRESSES ────────────────────────────────────────
+        // ── GET MY COMPANY ADDRESSES ──────────────────────────────────────
         case 'get_company_addresses': {
-          const result = await this.companyService.getCompanyAddresses(args.id);
+          const result = await this.companyService.getCompanyAddresses(currentUser.company_id, companyRequester);
           return JSON.stringify({
             success: result.success,
             message: result.message,
@@ -649,9 +573,9 @@ export class AiAgentService {
           });
         }
 
-        // ── GET COMPANY LOCATIONS ────────────────────────────────────────
+        // ── GET MY COMPANY LOCATIONS ──────────────────────────────────────
         case 'get_company_locations': {
-          const result = await this.companyService.getCompanyLocations(args.id);
+          const result = await this.companyService.getCompanyLocations(currentUser.company_id, companyRequester);
           return JSON.stringify({
             success: result.success,
             message: result.message,
@@ -659,20 +583,9 @@ export class AiAgentService {
           });
         }
 
-        // ── UPDATE COMPANY ────────────────────────────────────────────────
+        // ── UPDATE MY COMPANY ─────────────────────────────────────────────
         case 'update_company': {
-          const { id, ...updateData } = args;
-          const result = await this.companyService.updateCompany(id, updateData);
-          return JSON.stringify({
-            success: result.success,
-            message: result.message,
-            data: result.data ?? null,
-          });
-        }
-
-        // ── DELETE COMPANY ────────────────────────────────────────────────
-        case 'delete_company': {
-          const result = await this.companyService.deleteCompany(args.id);
+          const result = await this.companyService.updateCompany(currentUser.company_id, args, companyRequester);
           return JSON.stringify({
             success: result.success,
             message: result.message,
@@ -770,7 +683,7 @@ export class AiAgentService {
   // CHAT
   // =========================
 
-  async chat(data: ChatDto, currentUser: { company_id: number; user_id: number }) {
+  async chat(data: ChatDto, currentUser: { company_id: number; user_id: number; permissions?: string[] }) {
     const log = this.appLogger.forContext('AiAgentService', 'chat', {
       session_id: data.session_id ?? 'no-session',
       company_id: currentUser.company_id,
@@ -798,14 +711,11 @@ export class AiAgentService {
                     - update_product: edit an existing product by ID
                     - delete_product: remove a product by ID
                     
-                    COMPANIES:
-                    - get_companies_list: search and list companies
-                    - create_company: add a new company
-                    - get_company_details: fetch details of a specific company
-                    - get_company_addresses: fetch all addresses for a company
-                    - get_company_locations: fetch all locations for a company
-                    - update_company: edit an existing company by ID
-                    - delete_company: remove a company by ID
+                    MY COMPANY (self-service only — always the current user's own company):
+                    - get_company_details: fetch the current user's own company details
+                    - get_company_addresses: fetch addresses for the current user's own company
+                    - get_company_locations: fetch locations for the current user's own company
+                    - update_company: edit the current user's own company
                     
                     QUOTATIONS:
                     - get_quotations_list: search and list quotations

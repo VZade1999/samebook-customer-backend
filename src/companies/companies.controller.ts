@@ -5,7 +5,6 @@ import {
   Param,
   ParseIntPipe,
   Post,
-  Query,
   Req,
   Res,
   UseGuards,
@@ -14,15 +13,16 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AppLogger } from 'src/common/logger/logger.service';
-import { CompanyService } from './companies.service';
+import { CompanyService, CompanyRequester } from './companies.service';
 import { errorRes, failedRes, successRes } from 'src/Util/response.util';
-import { CreateCompanyDto } from './dto/createCompany.dto';
-import { CompaniesListDto } from './companies-list.dto';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { AuthGuard } from './../middlewares/auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 
+// Self-service only: every route here resolves to the caller's own company
+// (req.user.company_id, set by AuthGuard from the JWT) — there is no
+// cross-company listing, creation, or deletion in this app.
 @UseGuards(AuthGuard, PermissionsGuard)
 @Controller('companies')
 export class CompanyController {
@@ -30,64 +30,6 @@ export class CompanyController {
     private readonly companyService: CompanyService,
     private readonly appLogger: AppLogger,
   ) {}
-
-  @Post('/create')
-  @RequirePermissions('companies.create')
-  @UsePipes(ValidationPipe)
-  async createCompany(
-    @Req() req: Request,
-    @Res() res: Response,
-    @Body() body: CreateCompanyDto,
-  ) {
-    const log = this.appLogger.forContext('CompanyController', 'create', {
-      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-    });
-
-    log.info('Request received');
-    try {
-      const response = await this.companyService.createCompany(body);
-      if (!response.success) {
-        log.warn(`Company not created — ${response.message}`);
-        return failedRes(res, response.message);
-      }
-      log.info('Company created successfully');
-      return successRes(res, response.message, response.data);
-    } catch (error) {
-      log.error('Unhandled error in createCompany', error);
-      return errorRes(res, error);
-    }
-  }
-
-  @Get('/list')
-  @RequirePermissions('companies.view')
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
-  async companiesList(
-    @Req() req: Request,
-    @Res() res: Response,
-    @Query() query: CompaniesListDto,
-  ) {
-    const log = this.appLogger.forContext(
-      'CompanyController',
-      'companiesList',
-      {
-        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-      },
-    );
-
-    log.info('Request received');
-    try {
-      const response = await this.companyService.getCompaniesList(query);
-      if (!response.success) {
-        log.warn(`Companies list rejected — ${response.message}`);
-        return failedRes(res, response.message);
-      }
-      log.info('Companies list response sent successfully');
-      return successRes(res, response.message, response.data);
-    } catch (error) {
-      log.error('Unhandled error in companiesList', error);
-      return errorRes(res, error);
-    }
-  }
 
   @Get('/details/:id')
   @RequirePermissions('companies.view')
@@ -107,7 +49,10 @@ export class CompanyController {
 
     log.info('Request received');
     try {
-      const response = await this.companyService.getCompanyById(id);
+      const response = await this.companyService.getCompanyById(
+        id,
+        this.getRequester(req),
+      );
       if (!response.success) {
         log.warn(`Company details rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -138,7 +83,10 @@ export class CompanyController {
 
     log.info('Request received');
     try {
-      const response = await this.companyService.getCompanyAddresses(id);
+      const response = await this.companyService.getCompanyAddresses(
+        id,
+        this.getRequester(req),
+      );
       if (!response.success) {
         log.warn(`Company addresses rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -169,7 +117,10 @@ export class CompanyController {
 
     log.info('Request received');
     try {
-      const response = await this.companyService.getCompanyLocations(id);
+      const response = await this.companyService.getCompanyLocations(
+        id,
+        this.getRequester(req),
+      );
       if (!response.success) {
         log.warn(`Company locations rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -178,37 +129,6 @@ export class CompanyController {
       return successRes(res, response.message, response.data);
     } catch (error) {
       log.error('Unhandled error in companyLocations', error);
-      return errorRes(res, error);
-    }
-  }
-
-  @Post('/delete/:id')
-  @RequirePermissions('companies.delete')
-  async deleteCompany(
-    @Req() req: Request,
-    @Res() res: Response,
-    @Param('id', ParseIntPipe) id: number,
-  ) {
-    const log = this.appLogger.forContext(
-      'CompanyController',
-      'deleteCompany',
-      {
-        ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
-        companyId: id,
-      },
-    );
-
-    log.info('Request received');
-    try {
-      const response = await this.companyService.deleteCompany(id);
-      if (!response.success) {
-        log.warn(`Company delete rejected — ${response.message}`);
-        return failedRes(res, response.message);
-      }
-      log.info('Company deleted successfully');
-      return successRes(res, response.message, response.data);
-    } catch (error) {
-      log.error('Unhandled error in deleteCompany', error);
       return errorRes(res, error);
     }
   }
@@ -233,7 +153,11 @@ export class CompanyController {
 
     log.info('Request received');
     try {
-      const response = await this.companyService.updateCompany(id, body);
+      const response = await this.companyService.updateCompany(
+        id,
+        body,
+        this.getRequester(req),
+      );
       if (!response.success) {
         log.warn(`Company update rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -244,5 +168,10 @@ export class CompanyController {
       log.error('Unhandled error in updateCompany', error);
       return errorRes(res, error);
     }
+  }
+
+  private getRequester(req: Request): CompanyRequester {
+    const user = (req as any).user;
+    return { companyId: user?.company_id };
   }
 }

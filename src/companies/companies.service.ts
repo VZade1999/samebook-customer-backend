@@ -5,11 +5,17 @@ import { company_addresses } from '../models/company_addresses';
 import { company_locations } from '../models/company_locations';
 import { company_metadata } from '../models/company_metadata';
 import { company_bank_accounts } from '../models/company_bank_accounts';
-import { Model, ModelStatic, Op } from 'sequelize';
-import { CreateCompanyDto } from './dto/createCompany.dto';
-import { CompaniesListDto } from './companies-list.dto';
+import { Model, ModelStatic } from 'sequelize';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { CompanyMapper } from './mappers/company.mapper';
+
+// Identity context passed down from the controller (and from the AI agent's
+// tool-calling path, which invokes this service directly) for every call.
+// There is no cross-tenant/admin access here — every request is always
+// scoped to the single company the requester belongs to.
+export interface CompanyRequester {
+  companyId: number;
+}
 
 export class CompanyService {
   private readonly Companies: typeof companies;
@@ -73,212 +79,17 @@ export class CompanyService {
     }
   }
 
-  async createCompany(data: CreateCompanyDto) {
-    const log = this.appLogger.forContext('CompanyService', 'createCompany', {
-      companyName: data.name,
-    });
-
-    log.info('Create company attempt started');
-
-    const normalizedPrefix = this.normalizeCompanyPrefix(data.company_prefix);
-    if (!normalizedPrefix) {
-      return { success: false, message: 'Company prefix is required' };
-    }
-
-    const isUnique = await this.ensureUniqueCompanyPrefix(normalizedPrefix);
-    if (!isUnique) {
-      return { success: false, message: 'Company prefix already exists' };
-    }
-
-    const logoBuffer = this.parseBase64Logo(data.logo);
-    if (data.logo !== undefined && data.logo !== null && !logoBuffer) {
-      return { success: false, message: 'Invalid PNG logo data' };
-    }
-
-    const sequelize = this.dbProvider.sequelize;
-    const t = await sequelize.transaction();
-
-    let company: companies;
-    try {
-      company = await this.Companies.create(
-        {
-          name: data.name,
-          company_prefix: normalizedPrefix,
-          legal_name: data.legal_name,
-          registration_number: data.registration_number,
-          gst_no: data.gst_no,
-          website: data.website,
-          industry: data.industry,
-          primary_email: data.primary_email,
-          primary_phone: data.primary_phone,
-          default_terms_conditions: data.default_terms_conditions,
-          status: data.status ?? 'active',
-          logo: this.parseBase64Logo(data.logo),
-        },
-        { transaction: t },
-      );
-
-      if (data.addresses?.length) {
-        await this.CompanyAddresses.bulkCreate(
-          data.addresses.map((address) => ({
-            company_id: company.id,
-            type: address.type,
-            label: address.label,
-            line_1: address.line_1,
-            line_2: address.line_2,
-            city: address.city,
-            state: address.state,
-            country: address.country,
-            postal_code: address.postal_code,
-            phone: address.phone,
-            fax: address.fax,
-            notes: address.notes,
-            is_default: address.is_default ? 1 : 0,
-          })),
-          { transaction: t },
-        );
-      }
-
-      if (data.locations?.length) {
-        await this.CompanyLocations.bulkCreate(
-          data.locations.map((location) => ({
-            company_id: company.id,
-            name: location.name,
-            location_type: location.location_type,
-            address_id: location.address_id,
-            manager_name: location.manager_name,
-            manager_phone: location.manager_phone,
-            capacity: location.capacity,
-            operational_hours: location.operational_hours,
-            address_line_1: location.address_line_1,
-            address_line_2: location.address_line_2,
-            address_city: location.address_city,
-            address_state: location.address_state,
-            address_country: location.address_country,
-            address_postal_code: location.address_postal_code,
-            notes: location.notes,
-          })),
-          { transaction: t },
-        );
-      }
-
-      if (data.metadata?.length) {
-        await this.CompanyMetadata.bulkCreate(
-          data.metadata.map((meta) => ({
-            company_id: company.id,
-            key: meta.key,
-            value: meta.value,
-            data_type: meta.data_type,
-            is_sensitive: meta.is_sensitive ? 1 : 0,
-          })),
-          { transaction: t },
-        );
-      }
-
-      if (data.bank_accounts?.length) {
-        await this.CompanyBankAccounts.bulkCreate(
-          data.bank_accounts.map((account) => ({
-            company_id: company.id,
-            bank_name: account.bank_name,
-            account_holder_name: account.account_holder_name,
-            account_number: account.account_number,
-            ifsc_code: account.ifsc_code,
-            branch_name: account.branch_name,
-            branch_address: account.branch_address,
-            account_type: account.account_type,
-            notes: account.notes,
-            is_default: account.is_default ? 1 : 0,
-          })),
-          { transaction: t },
-        );
-      }
-
-      await t.commit();
-    } catch (err) {
-      await t.rollback();
-      const error = err as any;
-      log.error('DB error while creating company', err, {
-        mysqlError: error?.original?.message ?? error?.message,
-        sql: error?.sql,
-      });
-      throw new Error('DATABASE_ERROR');
-    }
-
-    log.enrich({ companyId: company.id }).info('Company created successfully');
-
-    return {
-      success: true,
-      message: 'Company created successfully',
-      data: { id: company.id },
-    };
-  }
-
-  async getCompaniesList(data: CompaniesListDto) {
-    const log = this.appLogger.forContext('CompanyService', 'getCompaniesList');
-
-    log.info('Fetching companies list');
-
-    const page = Number(data.page) || 1;
-    const limit = Number(data.limit) || 10;
-    const offset = (page - 1) * limit;
-
-    const andConditions: any[] = [];
-    if (data.search) {
-      andConditions.push({
-        name: { [Op.like]: `%${data.search}%` },
-      });
-    }
-
-    const whereClause = andConditions.length ? { [Op.and]: [...andConditions, { is_active: 1 }] } : { is_active: 1 };
-
-    let result: { rows: companies[]; count: number };
-    try {
-      result = await this.Companies.findAndCountAll({
-        attributes: { exclude: ['logo'] },
-        where: whereClause,
-        limit,
-        offset,
-        order: [['created_at', 'DESC']],
-        include: [
-          { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
-          { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
-          { model: this.CompanyMetadata, as: 'metadata', where: { is_active: 1 }, required: false },
-          { model: this.CompanyBankAccounts, as: 'bank_accounts', where: { is_active: 1 }, required: false },
-        ],
-        distinct: true,
-      });
-    } catch (err) {
-      log.error('DB error while listing companies', err);
-      throw new Error('DATABASE_ERROR');
-    }
-
-    const totalPages = Math.ceil(result.count / limit);
-
-    log.info('Companies list fetched successfully');
-
-    return {
-      success: true,
-      message: 'Companies list fetched successfully',
-      data: {
-        companies: result.rows,
-        pagination: {
-          total: result.count,
-          page,
-          limit,
-          totalPages,
-          hasNextPage: page < totalPages,
-          hasPrevPage: page > 1,
-        },
-      },
-    };
-  }
-
-  async getCompanyById(id: number) {
+  async getCompanyById(id: number, requester: CompanyRequester) {
     const log = this.appLogger.forContext('CompanyService', 'getCompanyById', {
       companyId: id,
     });
 
     log.info('Fetching company details');
+
+    if (id !== requester.companyId) {
+      log.warn('Rejected — requester does not belong to this company');
+      return { success: false, message: `Company with id ${id} not found` };
+    }
 
     let company: companies | null;
     try {
@@ -324,12 +135,17 @@ export class CompanyService {
     }, {} as Record<string, any>);
   }
 
-  async updateCompany(id: number, data: UpdateCompanyDto) {
+  async updateCompany(id: number, data: UpdateCompanyDto, requester: CompanyRequester) {
     const log = this.appLogger.forContext('CompanyService', 'updateCompany', {
       companyId: id,
     });
 
     log.info('Update company attempt started');
+
+    if (id !== requester.companyId) {
+      log.warn('Rejected — requester does not belong to this company');
+      return { success: false, message: `Company with id ${id} not found` };
+    }
 
     let company: companies | null;
     try {
@@ -533,56 +349,17 @@ export class CompanyService {
     };
   }
 
-  async deleteCompany(id: number) {
-    const log = this.appLogger.forContext('CompanyService', 'deleteCompany', {
-      companyId: id,
-    });
-
-    log.info('Delete company attempt started');
-
-    let company: companies | null;
-    try {
-      company = await this.Companies.findByPk(id);
-    } catch (err) {
-      log.error('DB error while fetching company', err);
-      throw new Error('DATABASE_ERROR');
-    }
-
-    if (!company) {
-      log.warn('Company not found');
-      return { success: false, message: `Company with id ${id} not found` };
-    }
-
-    const sequelize = this.dbProvider.sequelize;
-    const t = await sequelize.transaction();
-
-    try {
-      await this.Companies.update({ is_active: 0 }, { where: { id }, transaction: t });
-      await this.CompanyAddresses.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
-      await this.CompanyLocations.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
-      await this.CompanyMetadata.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
-      await this.CompanyBankAccounts.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
-      await t.commit();
-    } catch (err) {
-      await t.rollback();
-      log.error('DB error while deleting company', err);
-      throw new Error('DATABASE_ERROR');
-    }
-
-    log.info('Company deleted successfully');
-    return {
-      success: true,
-      message: 'Company deleted successfully',
-      data: { id },
-    };
-  }
-
-  async getCompanyAddresses(companyId: number) {
+  async getCompanyAddresses(companyId: number, requester: CompanyRequester) {
     const log = this.appLogger.forContext('CompanyService', 'getCompanyAddresses', {
       companyId,
     });
 
     log.info('Fetching company addresses');
+
+    if (companyId !== requester.companyId) {
+      log.warn('Rejected — requester does not belong to this company');
+      return { success: false, message: `Company with id ${companyId} not found` };
+    }
 
     let addresses: company_addresses[];
     try {
@@ -601,12 +378,17 @@ export class CompanyService {
     };
   }
 
-  async getCompanyLocations(companyId: number) {
+  async getCompanyLocations(companyId: number, requester: CompanyRequester) {
     const log = this.appLogger.forContext('CompanyService', 'getCompanyLocations', {
       companyId,
     });
 
     log.info('Fetching company locations');
+
+    if (companyId !== requester.companyId) {
+      log.warn('Rejected — requester does not belong to this company');
+      return { success: false, message: `Company with id ${companyId} not found` };
+    }
 
     let locations: company_locations[];
     try {
