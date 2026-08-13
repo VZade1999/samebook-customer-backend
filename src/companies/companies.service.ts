@@ -290,7 +290,6 @@ export class CompanyService {
     try {
       company = await this.Companies.findOne({
         where: { id, is_active: 1 },
-        attributes: { exclude: ['logo'] },
         include: [
           { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
           { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
@@ -314,8 +313,6 @@ export class CompanyService {
     if (jsonCompany.logo && Buffer.isBuffer(jsonCompany.logo)) {
       jsonCompany.logo = `data:image/png;base64,${jsonCompany.logo.toString('base64')}`;
     }
-
-    console.log('Fetched company details:', jsonCompany)
 
     return {
       success: true,
