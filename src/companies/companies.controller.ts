@@ -20,7 +20,10 @@ import { CreateCompanyDto } from './dto/createCompany.dto';
 import { CompaniesListDto } from './companies-list.dto';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { AuthGuard } from './../middlewares/auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 
+@UseGuards(AuthGuard, PermissionsGuard)
 @Controller('companies')
 export class CompanyController {
   constructor(
@@ -29,7 +32,7 @@ export class CompanyController {
   ) {}
 
   @Post('/create')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.create')
   @UsePipes(ValidationPipe)
   async createCompany(
     @Req() req: Request,
@@ -56,7 +59,7 @@ export class CompanyController {
   }
 
   @Get('/list')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.view')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async companiesList(
     @Req() req: Request,
@@ -87,7 +90,7 @@ export class CompanyController {
   }
 
   @Get('/details/:id')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.view')
   async companyDetails(
     @Req() req: Request,
     @Res() res: Response,
@@ -118,7 +121,7 @@ export class CompanyController {
   }
 
   @Get('/:id/addresses')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.view')
   async companyAddresses(
     @Req() req: Request,
     @Res() res: Response,
@@ -149,7 +152,7 @@ export class CompanyController {
   }
 
   @Get('/:id/locations')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.view')
   async companyLocations(
     @Req() req: Request,
     @Res() res: Response,
@@ -180,7 +183,7 @@ export class CompanyController {
   }
 
   @Post('/delete/:id')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.delete')
   async deleteCompany(
     @Req() req: Request,
     @Res() res: Response,
@@ -211,7 +214,7 @@ export class CompanyController {
   }
 
   @Post('/update-company/:id')
-  @UseGuards(AuthGuard)
+  @RequirePermissions('companies.edit')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async updateCompany(
     @Req() req: Request,

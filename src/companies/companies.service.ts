@@ -42,6 +42,7 @@ export class CompanyService {
     const existingCompany = await this.Companies.findOne({
       where: {
         company_prefix: companyPrefix,
+        is_active: 1,
       },
     });
 
@@ -94,33 +95,30 @@ export class CompanyService {
       return { success: false, message: 'Invalid PNG logo data' };
     }
 
+    const sequelize = this.dbProvider.sequelize;
+    const t = await sequelize.transaction();
+
     let company: companies;
     try {
-      company = await this.Companies.create({
-        name: data.name,
-        company_prefix: normalizedPrefix,
-        legal_name: data.legal_name,
-        registration_number: data.registration_number,
-        gst_no: data.gst_no,
-        website: data.website,
-        industry: data.industry,
-        primary_email: data.primary_email,
-        primary_phone: data.primary_phone,
-        default_terms_conditions: data.default_terms_conditions,
-        status: data.status ?? 'active',
-        logo: this.parseBase64Logo(data.logo),
-      });
-    } catch (err) {
-      const error = err as any;
-      log.error('DB error while creating company', err, {
-        mysqlError: error?.original?.message ?? error?.message,
-        sql: error?.sql,
-      });
-      throw new Error('DATABASE_ERROR');
-    }
+      company = await this.Companies.create(
+        {
+          name: data.name,
+          company_prefix: normalizedPrefix,
+          legal_name: data.legal_name,
+          registration_number: data.registration_number,
+          gst_no: data.gst_no,
+          website: data.website,
+          industry: data.industry,
+          primary_email: data.primary_email,
+          primary_phone: data.primary_phone,
+          default_terms_conditions: data.default_terms_conditions,
+          status: data.status ?? 'active',
+          logo: this.parseBase64Logo(data.logo),
+        },
+        { transaction: t },
+      );
 
-    if (data.addresses?.length) {
-      try {
+      if (data.addresses?.length) {
         await this.CompanyAddresses.bulkCreate(
           data.addresses.map((address) => ({
             company_id: company.id,
@@ -137,15 +135,11 @@ export class CompanyService {
             notes: address.notes,
             is_default: address.is_default ? 1 : 0,
           })),
+          { transaction: t },
         );
-      } catch (err) {
-        log.error('DB error while creating company addresses', err);
-        throw new Error('DATABASE_ERROR');
       }
-    }
 
-    if (data.locations?.length) {
-      try {
+      if (data.locations?.length) {
         await this.CompanyLocations.bulkCreate(
           data.locations.map((location) => ({
             company_id: company.id,
@@ -164,15 +158,11 @@ export class CompanyService {
             address_postal_code: location.address_postal_code,
             notes: location.notes,
           })),
+          { transaction: t },
         );
-      } catch (err) {
-        log.error('DB error while creating company locations', err);
-        throw new Error('DATABASE_ERROR');
       }
-    }
 
-    if (data.metadata?.length) {
-      try {
+      if (data.metadata?.length) {
         await this.CompanyMetadata.bulkCreate(
           data.metadata.map((meta) => ({
             company_id: company.id,
@@ -181,15 +171,11 @@ export class CompanyService {
             data_type: meta.data_type,
             is_sensitive: meta.is_sensitive ? 1 : 0,
           })),
+          { transaction: t },
         );
-      } catch (err) {
-        log.error('DB error while creating company metadata', err);
-        throw new Error('DATABASE_ERROR');
       }
-    }
 
-    if (data.bank_accounts?.length) {
-      try {
+      if (data.bank_accounts?.length) {
         await this.CompanyBankAccounts.bulkCreate(
           data.bank_accounts.map((account) => ({
             company_id: company.id,
@@ -203,11 +189,19 @@ export class CompanyService {
             notes: account.notes,
             is_default: account.is_default ? 1 : 0,
           })),
+          { transaction: t },
         );
-      } catch (err) {
-        log.error('DB error while creating company bank accounts', err);
-        throw new Error('DATABASE_ERROR');
       }
+
+      await t.commit();
+    } catch (err) {
+      await t.rollback();
+      const error = err as any;
+      log.error('DB error while creating company', err, {
+        mysqlError: error?.original?.message ?? error?.message,
+        sql: error?.sql,
+      });
+      throw new Error('DATABASE_ERROR');
     }
 
     log.enrich({ companyId: company.id }).info('Company created successfully');
@@ -378,116 +372,158 @@ export class CompanyService {
         logoUpdateValue = parsed;
       }
     }
-// ── Update core company fields ────────────────────────────────────────────
+    const sequelize = this.dbProvider.sequelize;
+    const t = await sequelize.transaction();
+
     try {
-      await company.update(this.cleanPayload({
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.company_prefix !== undefined && { company_prefix: data.company_prefix }),
-        ...(data.legal_name !== undefined && { legal_name: data.legal_name }),
-        ...(data.registration_number !== undefined && {
-          registration_number: data.registration_number,
+      // ── Update core company fields ──────────────────────────────────────────
+      // `data.logo !== undefined` — not `!== null` — so an explicit `logo: null`
+      // (clear the logo) is actually included in the update instead of being
+      // silently dropped; cleanPayload only strips `undefined`, so `null` still
+      // reaches the DB and clears the column.
+      await company.update(
+        this.cleanPayload({
+          ...(data.name !== undefined && { name: data.name }),
+          ...(data.company_prefix !== undefined && { company_prefix: data.company_prefix }),
+          ...(data.legal_name !== undefined && { legal_name: data.legal_name }),
+          ...(data.registration_number !== undefined && {
+            registration_number: data.registration_number,
+          }),
+          ...(data.gst_no !== undefined && { gst_no: data.gst_no }),
+          ...(data.website !== undefined && { website: data.website }),
+          ...(data.industry !== undefined && { industry: data.industry }),
+          ...(data.primary_email !== undefined && { primary_email: data.primary_email }),
+          ...(data.primary_phone !== undefined && { primary_phone: data.primary_phone }),
+          ...(data.default_terms_conditions !== undefined && {
+            default_terms_conditions: data.default_terms_conditions,
+          }),
+          ...(data.status !== undefined && { status: data.status }),
+          ...(data.logo !== undefined && { logo: logoUpdateValue }),
         }),
-        ...(data.gst_no !== undefined && { gst_no: data.gst_no }),
-        ...(data.website !== undefined && { website: data.website }),
-        ...(data.industry !== undefined && { industry: data.industry }),
-        ...(data.primary_email !== undefined && { primary_email: data.primary_email }),
-        ...(data.primary_phone !== undefined && { primary_phone: data.primary_phone }),
-        ...(data.default_terms_conditions !== undefined && {
-          default_terms_conditions: data.default_terms_conditions,
-        }),
-        ...(data.status !== undefined && { status: data.status }),
-        ...(data.logo !== null && { logo: logoUpdateValue }),
-      }));
+        { transaction: t },
+      );
+
+      // ── Soft-delete removed nested records ──────────────────────────────────
+      // Only diff/delete a nested collection when the caller actually sent it —
+      // an omitted field (per the DTO's @IsOptional()) must leave those existing
+      // records untouched, not be treated the same as an explicit empty array.
+      const softDeleteTasks: Promise<void>[] = [];
+
+      if (data.addresses !== undefined) {
+        softDeleteTasks.push(
+          this.softDeleteRemoved(
+            this.CompanyAddresses,
+            id,
+            data.addresses.map((a) => a.id),
+            undefined,
+            t,
+            // also null out the FK on locations referencing deleted addresses
+          ).then(async () => {
+            const deletedAddressIds = await this.CompanyAddresses.findAll({
+              where: { company_id: id, is_active: 0 },
+              attributes: ['id'],
+              transaction: t,
+            });
+            if (deletedAddressIds.length) {
+              await this.CompanyLocations.update(
+                { address_id: null },
+                {
+                  where: { address_id: deletedAddressIds.map((a: any) => a.id) },
+                  transaction: t,
+                },
+              );
+            }
+          }),
+        );
+      }
+
+      if (data.locations !== undefined) {
+        softDeleteTasks.push(
+          this.softDeleteRemoved(
+            this.CompanyLocations,
+            id,
+            data.locations.map((l) => l.id),
+            undefined,
+            t,
+          ),
+        );
+      }
+
+      if (data.metadata !== undefined) {
+        softDeleteTasks.push(
+          this.softDeleteRemoved(
+            this.CompanyMetadata,
+            id,
+            data.metadata.map((m) => m.id),
+            undefined,
+            t,
+          ),
+        );
+      }
+
+      if (data.bank_accounts !== undefined) {
+        softDeleteTasks.push(
+          this.softDeleteRemoved(
+            this.CompanyBankAccounts,
+            id,
+            data.bank_accounts.map((b) => b.id),
+            undefined,
+            t,
+          ),
+        );
+      }
+
+      await Promise.all(softDeleteTasks);
+
+      // ── Upsert nested records ───────────────────────────────────────────────
+      await Promise.all([
+        ...(data.addresses ?? []).map((address) =>
+          this.upsertRecord(
+            this.CompanyAddresses,
+            address.id,
+            id,
+            CompanyMapper.toAddressPayload(id, address),
+            t,
+          ),
+        ),
+        ...(data.locations ?? []).map((location) =>
+          this.upsertRecord(
+            this.CompanyLocations,
+            location.id,
+            id,
+            CompanyMapper.toLocationPayload(id, location),
+            t,
+          ),
+        ),
+        ...(data.metadata ?? []).map((meta) =>
+          this.upsertRecord(
+            this.CompanyMetadata,
+            meta.id,
+            id,
+            CompanyMapper.toMetadataPayload(id, meta),
+            t,
+          ),
+        ),
+        ...(data.bank_accounts ?? []).map((account) =>
+          this.upsertRecord(
+            this.CompanyBankAccounts,
+            account.id,
+            id,
+            CompanyMapper.toBankAccountPayload(id, account),
+            t,
+          ),
+        ),
+      ]);
+
+      await t.commit();
     } catch (err) {
-      log.error('DB error while updating company', err);
+      await t.rollback();
+      log.error('DB error while updating company', err, {
+        mysqlError: (err as any)?.original?.message ?? (err as any)?.message,
+        sql: (err as any)?.sql,
+      });
       throw new Error('DATABASE_ERROR');
     }
-
-    // ── Soft-delete removed nested records ───────────────────────────────────
-     try {
-    await Promise.all([
-      this.softDeleteRemoved(
-        this.CompanyAddresses,
-        id,
-        (data.addresses ?? []).map((a) => a.id),
-        // also null out the FK on locations referencing deleted addresses
-      ).then(async () => {
-        const deletedAddressIds = await this.CompanyAddresses.findAll({
-          where: { company_id: id, is_active: 0 },
-          attributes: ['id'],
-        });
-        if (deletedAddressIds.length) {
-          await this.CompanyLocations.update(
-            { address_id: null },
-            { where: { address_id: deletedAddressIds.map((a: any) => a.id) } },
-          );
-        }
-      }),
-      this.softDeleteRemoved(
-        this.CompanyLocations,
-        id,
-        (data.locations ?? []).map((l) => l.id),
-      ),
-      this.softDeleteRemoved(
-        this.CompanyMetadata,
-        id,
-        (data.metadata ?? []).map((m) => m.id),
-      ),
-      this.softDeleteRemoved(
-        this.CompanyBankAccounts,
-        id,
-        (data.bank_accounts ?? []).map((b) => b.id),
-      ),
-    ]);
-  } catch (err) {
-    log.error('DB error while cleaning up nested records', err);
-    throw new Error('DATABASE_ERROR');
-  }
-
-   // ── Upsert nested records ─────────────────────────────────────────────────
-  try {
-    await Promise.all([
-      ...(data.addresses ?? []).map((address) =>
-        this.upsertRecord(
-          this.CompanyAddresses,
-          address.id,
-          id,
-          CompanyMapper.toAddressPayload(id, address),
-        ),
-      ),
-      ...(data.locations ?? []).map((location) =>
-        this.upsertRecord(
-          this.CompanyLocations,
-          location.id,
-          id,
-          CompanyMapper.toLocationPayload(id, location),
-        ),
-      ),
-      ...(data.metadata ?? []).map((meta) =>
-        this.upsertRecord(
-          this.CompanyMetadata,
-          meta.id,
-          id,
-          CompanyMapper.toMetadataPayload(id, meta),
-        ),
-      ),
-      ...(data.bank_accounts ?? []).map((account) =>
-        this.upsertRecord(
-          this.CompanyBankAccounts,
-          account.id,
-          id,
-          CompanyMapper.toBankAccountPayload(id, account),
-        ),
-      ),
-    ]);
-  } catch (err) {
-    log.error('DB error while upserting nested records', err, {
-      mysqlError: (err as any)?.original?.message ?? (err as any)?.message,
-      sql: (err as any)?.sql,
-    });
-    throw new Error('DATABASE_ERROR');
-  }
-
 
     log.info('Company updated successfully');
     return {
@@ -517,13 +553,18 @@ export class CompanyService {
       return { success: false, message: `Company with id ${id} not found` };
     }
 
+    const sequelize = this.dbProvider.sequelize;
+    const t = await sequelize.transaction();
+
     try {
-      await this.Companies.update({ is_active: 0 }, { where: { id } });
-      await this.CompanyAddresses.update({ is_active: 0 }, { where: { company_id: id } });
-      await this.CompanyLocations.update({ is_active: 0 }, { where: { company_id: id } });
-      await this.CompanyMetadata.update({ is_active: 0 }, { where: { company_id: id } });
-      await this.CompanyBankAccounts.update({ is_active: 0 }, { where: { company_id: id } });
+      await this.Companies.update({ is_active: 0 }, { where: { id }, transaction: t });
+      await this.CompanyAddresses.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
+      await this.CompanyLocations.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
+      await this.CompanyMetadata.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
+      await this.CompanyBankAccounts.update({ is_active: 0 }, { where: { company_id: id }, transaction: t });
+      await t.commit();
     } catch (err) {
+      await t.rollback();
       log.error('DB error while deleting company', err);
       throw new Error('DATABASE_ERROR');
     }
@@ -591,17 +632,19 @@ private async upsertRecord<T extends Model>(
   recordId: number | undefined,
   companyId: number,
   payload: object,
+  transaction?: any,
 ): Promise<void> {
   if (recordId) {
     const existing = await (model as any).findOne({
       where: { id: recordId, company_id: companyId },
+      transaction,
     });
     if (existing) {
-      await existing.update(payload);
+      await existing.update(payload, { transaction });
       return;
     }
   }
-  await (model as any).create(payload);
+  await (model as any).create(payload, { transaction });
 }
 
 // Generic soft-delete helper — eliminates the repetitive delete diffing pattern
@@ -610,10 +653,12 @@ private async softDeleteRemoved(
   companyId: number,
   incomingIds: (number | undefined)[],
   extraUpdate?: Record<string, any>,
+  transaction?: any,
 ): Promise<void> {
   const existing = await model.findAll({
     where: { company_id: companyId, is_active: 1 },
     attributes: ['id'],
+    transaction,
   });
 
   const existingIds: number[] = existing.map((r: any) => r.id);
@@ -623,7 +668,7 @@ private async softDeleteRemoved(
   if (toDelete.length) {
     await model.update(
       { is_active: 0, ...extraUpdate },
-      { where: { id: toDelete } },
+      { where: { id: toDelete }, transaction },
     );
   }
 }
