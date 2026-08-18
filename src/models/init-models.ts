@@ -213,6 +213,12 @@ import type {
   warehousesCreationAttributes,
 } from './warehouses';
 
+import { attendance as _attendance, attendance } from './attendance';
+import type {
+  attendanceAttributes,
+  attendanceCreationAttributes,
+} from './attendance';
+
 export {
   _users as users,
   _roles as roles,
@@ -243,6 +249,7 @@ export {
   _invoice_payments as invoice_payments,
   _invoice_activity_logs as invoice_activity_logs,
   _warehouses as warehouses,
+  _attendance as attendance,
 };
 
 export type {
@@ -274,6 +281,7 @@ export type {
   invoicePaymentsAttributes,
   invoiceActivityLogsAttributes,
   warehousesAttributes,
+  attendanceAttributes,
 };
 
 export function initModels(sequelize: Sequelize) {
@@ -300,6 +308,7 @@ export function initModels(sequelize: Sequelize) {
   const customer_addresses = _customer_addresses.initModel(sequelize);
   const invoices = _invoices.initModel(sequelize);
   const warehouses = _warehouses.initModel(sequelize);
+  const attendance = _attendance.initModel(sequelize);
 
 const invoice_items =
   _invoice_items.initModel(sequelize);
@@ -760,6 +769,10 @@ invoice_activity_logs.belongsTo(users, {
     foreignKey: 'warehouse_id',
   });
 
+  // USERS <-> ATTENDANCE
+  users.hasMany(attendance, { as: 'attendance', foreignKey: 'user_id' });
+  attendance.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
+
   // users <-> refresh_tokens
   users.hasMany(refresh_tokens, { as: 'refresh_tokens', foreignKey: 'user_id' });
   refresh_tokens.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
@@ -806,5 +819,6 @@ invoice_activity_logs.belongsTo(users, {
     invoice_payments,
     invoice_activity_logs,
     warehouses,
+    attendance,
   };
 }

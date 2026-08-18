@@ -11,6 +11,22 @@ export interface usersAttributes {
   password: string;
   is_active?: number;
   last_login?: Date;
+  date_of_birth?: string;
+  gender?: string;
+  marital_status?: string;
+  blood_group?: string;
+  permanent_address?: string;
+  aadhar_no?: string;
+  pan_no?: string;
+  emergency_contact?: string;
+  bank_name?: string;
+  branch_name?: string;
+  account_number?: string;
+  account_type?: string;
+  ifsc_code?: string;
+  micr_code?: string;
+  salary_payment_mode?: string;
+  avatar?: Buffer;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -25,6 +41,22 @@ export type usersOptionalAttributes =
   | 'phone'
   | 'is_active'
   | 'last_login'
+  | 'date_of_birth'
+  | 'gender'
+  | 'marital_status'
+  | 'blood_group'
+  | 'permanent_address'
+  | 'aadhar_no'
+  | 'pan_no'
+  | 'emergency_contact'
+  | 'bank_name'
+  | 'branch_name'
+  | 'account_number'
+  | 'account_type'
+  | 'ifsc_code'
+  | 'micr_code'
+  | 'salary_payment_mode'
+  | 'avatar'
   | 'created_at'
   | 'updated_at';
 
@@ -46,6 +78,22 @@ export class users
   password!: string;
   is_active?: number;
   last_login?: Date;
+  date_of_birth?: string;
+  gender?: string;
+  marital_status?: string;
+  blood_group?: string;
+  permanent_address?: string;
+  aadhar_no?: string;
+  pan_no?: string;
+  emergency_contact?: string;
+  bank_name?: string;
+  branch_name?: string;
+  account_number?: string;
+  account_type?: string;
+  ifsc_code?: string;
+  micr_code?: string;
+  salary_payment_mode?: string;
+  avatar?: Buffer;
   created_at?: Date;
   updated_at?: Date;
 
@@ -102,6 +150,86 @@ export class users
 
         last_login: {
           type: DataTypes.DATE,
+          allowNull: true,
+        },
+
+        date_of_birth: {
+          type: DataTypes.DATEONLY,
+          allowNull: true,
+        },
+
+        gender: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+
+        marital_status: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+
+        blood_group: {
+          type: DataTypes.STRING(10),
+          allowNull: true,
+        },
+
+        permanent_address: {
+          type: DataTypes.TEXT,
+          allowNull: true,
+        },
+
+        aadhar_no: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+
+        pan_no: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+
+        emergency_contact: {
+          type: DataTypes.STRING(50),
+          allowNull: true,
+        },
+
+        bank_name: {
+          type: DataTypes.STRING(150),
+          allowNull: true,
+        },
+
+        branch_name: {
+          type: DataTypes.STRING(150),
+          allowNull: true,
+        },
+
+        account_number: {
+          type: DataTypes.STRING(50),
+          allowNull: true,
+        },
+
+        account_type: {
+          type: DataTypes.STRING(30),
+          allowNull: true,
+        },
+
+        ifsc_code: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+
+        micr_code: {
+          type: DataTypes.STRING(20),
+          allowNull: true,
+        },
+
+        salary_payment_mode: {
+          type: DataTypes.STRING(30),
+          allowNull: true,
+        },
+
+        avatar: {
+          type: DataTypes.BLOB('long'),
           allowNull: true,
         },
 

@@ -17,6 +17,8 @@ import { AuthModule } from './auth/auth.module';
 import { CallbackModule } from './callback/callback.module';
 import { CategoriesModule } from './categories/categories.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
+import { ProfileModule } from './profile/profile.module';
+import { AttendanceModule } from './attendance/attendance.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -48,6 +50,8 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     CallbackModule,
     CategoriesModule,
     WarehousesModule,
+    ProfileModule,
+    AttendanceModule,
   ],
   //controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],
