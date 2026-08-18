@@ -65,6 +65,83 @@ export class QuotationService {
     return this.appLogger.forContext('QuotationService', operation, meta);
   }
 
+  // Fire-and-forget: keeps the product catalog in sync with whatever the
+  // user typed on a quotation line item, WITHOUT the caller awaiting it —
+  // callers invoke this without `await` right after their own transaction
+  // commits, so a slow or failing sync never delays or fails the
+  // create/update quotation response. Runs outside that transaction
+  // entirely (it's a separate, best-effort side effect, not something the
+  // quotation's durability should depend on). One bad item is logged and
+  // skipped rather than aborting the rest of the batch.
+  //
+  // Matching is by product name (case-insensitive) within the company,
+  // since a quotation line item carries no product_id — this is a
+  // reasonable heuristic given the constraints, but note it means renaming
+  // a product's name breaks the link (a fresh product row would be
+  // created instead of updating the old one).
+  private async syncProductsFromItems(
+    items: QuotationItemDto[] | undefined,
+    companyId: number | undefined,
+  ): Promise<void> {
+    if (!Array.isArray(items) || items.length === 0 || !companyId) return;
+
+    const Products = this.dbProvider.db.products;
+    const log = this.getLog('syncProductsFromItems', { companyId });
+
+    for (const item of items) {
+      const name = item.product_name?.trim();
+      if (!name) continue;
+
+      try {
+        const existing = await Products.findOne({
+          where: {
+            company_id: companyId,
+            name: { [Op.like]: name },
+            is_active: 1,
+          },
+        });
+
+        if (existing) {
+          const updates: Record<string, any> = {};
+          // product_code doubles as this app's HSN code (see QuotationItems.tsx).
+          if (item.hsn_code !== undefined && item.hsn_code !== existing.product_code) {
+            updates.product_code = item.hsn_code;
+          }
+          if (item.unit !== undefined && item.unit !== existing.unit) {
+            updates.unit = item.unit;
+          }
+          if (item.rate !== undefined && Number(item.rate) !== Number(existing.price)) {
+            updates.price = item.rate;
+          }
+          if (Object.keys(updates).length > 0) {
+            await existing.update(updates);
+            log.info('Synced existing product from quotation item', {
+              productId: existing.id,
+              updates,
+            });
+          }
+        } else {
+          const created = await Products.create({
+            company_id: companyId,
+            name,
+            product_code: item.hsn_code || null,
+            unit: item.unit || null,
+            price: item.rate || 0,
+            is_active: 1,
+          });
+          log.info('Created new product from quotation item', {
+            productId: created.id,
+            name,
+          });
+        }
+      } catch (err) {
+        log.error('Failed to sync product from quotation item — skipping', err as Error, {
+          productName: name,
+        });
+      }
+    }
+  }
+
   private buildSearchFilters(
     query: QuotationsListDto,
   ): WhereOptions<quotationsAttributes> {
@@ -917,6 +994,11 @@ export class QuotationService {
 
       await transaction.commit();
 
+      // Not awaited on purpose — see syncProductsFromItems' comment.
+      this.syncProductsFromItems(data.items, data.company_id).catch((err) => {
+        log.error('Background product sync failed after quotation create', err as Error);
+      });
+
       log.info('Quotation created successfully', {
         quotationId: quotation.id,
       });
@@ -1087,6 +1169,11 @@ export class QuotationService {
       );
 
       await transaction.commit();
+
+      // Not awaited on purpose — see syncProductsFromItems' comment.
+      this.syncProductsFromItems(data.items, quotation.company_id).catch((err) => {
+        log.error('Background product sync failed after quotation update', err as Error);
+      });
 
       log.info('Quotation updated successfully', {
         quotationId: quotation.id,
