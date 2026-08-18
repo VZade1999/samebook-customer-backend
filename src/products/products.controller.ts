@@ -25,24 +25,30 @@ import { UpdateProductDto } from './dto/updateProduct.dto';
 import { ProductsListDto } from './products-list.dto';
 import { ProductService } from './products.service';
 import { AuthGuard } from '../middlewares/auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 
+// Every route here is scoped to the caller's own company (via
+// ProductService reading currentUser.company_id) — no cross-tenant
+// read/write is possible regardless of which product id is requested.
 @Controller('product')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, PermissionsGuard)
 export class ProductController {
   constructor(
     private readonly productService: ProductService,
     private readonly appLogger: AppLogger,
   ) {}
 
-    @UseGuards(AuthGuard)
   @Post('/create')
+  @RequirePermissions('products.create')
   @UsePipes(ValidationPipe)
   async createProduct(
     @Req() req: Request,
     @Res() res: Response,
     @Body() body: CreateProductDto,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext('ProductController', 'create', {
       ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
@@ -51,7 +57,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.createProduct(body);
+      const response = await this.productService.createProduct(body, currentUser);
       if (!response.success) {
         log.warn(`Product not created — ${response.message}`);
         return failedRes(res, response.message);
@@ -64,8 +70,8 @@ export class ProductController {
     }
   }
 
-    @UseGuards(AuthGuard)
   @Get('/list')
+  @RequirePermissions('products.view')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async productsList(
     @Req() req: Request,
@@ -93,13 +99,13 @@ export class ProductController {
     }
   }
 
-    @UseGuards(AuthGuard)
   @Delete('/:id')
-  @Post('/delete-product/:id')
+  @RequirePermissions('products.delete')
   async deleteProduct(
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext(
       'ProductController',
@@ -113,7 +119,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.deleteProduct(id);
+      const response = await this.productService.deleteProduct(id, currentUser);
       if (!response.success) {
         log.warn(`Product deletion rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -126,12 +132,13 @@ export class ProductController {
     }
   }
 
-    @UseGuards(AuthGuard)
   @Patch('/:id/activate')
+  @RequirePermissions('products.edit')
   async activateProduct(
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext(
       'ProductController',
@@ -145,7 +152,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.activateProduct(id);
+      const response = await this.productService.activateProduct(id, currentUser);
       if (!response.success) {
         log.warn(`Product activation rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -158,12 +165,13 @@ export class ProductController {
     }
   }
 
-    @UseGuards(AuthGuard)
   @Patch('/:id/deactivate')
+  @RequirePermissions('products.edit')
   async deactivateProduct(
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext(
       'ProductController',
@@ -177,7 +185,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.deactivateProduct(id);
+      const response = await this.productService.deactivateProduct(id, currentUser);
       if (!response.success) {
         log.warn(`Product deactivation rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -190,12 +198,13 @@ export class ProductController {
     }
   }
 
-    @UseGuards(AuthGuard)
   @Get('/:id')
+  @RequirePermissions('products.view')
   async getProductById(
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext(
       'ProductController',
@@ -209,7 +218,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.getProductById(id);
+      const response = await this.productService.getProductById(id, currentUser);
       if (!response.success) {
         log.warn(`Product fetch rejected — ${response.message}`);
         return failedRes(res, response.message);
@@ -222,16 +231,15 @@ export class ProductController {
     }
   }
 
-    @UseGuards(AuthGuard)
   @Put('/:id')
-    @UseGuards(AuthGuard)
-  @Post('/update-product/:id')
+  @RequirePermissions('products.edit')
   @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
   async updateProduct(
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
     @Body() body: UpdateProductDto,
+    @GetUser() currentUser: CurrentUser,
   ) {
     const log = this.appLogger.forContext(
       'ProductController',
@@ -245,7 +253,7 @@ export class ProductController {
     log.info('Request received');
 
     try {
-      const response = await this.productService.updateProduct(id, body);
+      const response = await this.productService.updateProduct(id, body, currentUser);
       if (!response.success) {
         log.warn(`Product update rejected — ${response.message}`);
         return failedRes(res, response.message);

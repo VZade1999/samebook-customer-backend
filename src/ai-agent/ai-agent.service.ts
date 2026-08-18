@@ -160,9 +160,9 @@ export class AiAgentService {
       type: 'function',
       function: {
         name: 'create_product',
-        description: `Create a new product in the database.
+        description: `Create a new product for the current user's own company.
                       Use this when the user wants to add or create a new product.
-                      name, price, and company_id are required.`,
+                      name and price are required.`,
         parameters: {
           type: 'object',
           properties: {
@@ -177,11 +177,10 @@ export class AiAgentService {
             barcode:       { type: 'string', description: 'Barcode' },
             stock_quantity:{ type: 'number', description: 'Stock quantity' },
             minimum_stock: { type: 'number', description: 'Minimum stock level' },
-            company_id:    { type: 'number', description: 'Company ID' },
             category_id:   { type: 'number', description: 'Category ID' },
             image_url:     { type: 'string', description: 'Image URL' },
           },
-          required: ['name', 'price', 'company_id'],
+          required: ['name', 'price'],
         },
       },
     },
@@ -524,7 +523,7 @@ export class AiAgentService {
 
         // ── CREATE PRODUCT ────────────────────────────────────────────────
         case 'create_product': {
-          const result = await this.productService.createProduct(args);
+          const result = await this.productService.createProduct(args, currentUser);
           return JSON.stringify({
             success: result.success,
             message: result.message,
@@ -534,7 +533,7 @@ export class AiAgentService {
 
         // ── DELETE PRODUCT ────────────────────────────────────────────────
         case 'delete_product': {
-          const result = await this.productService.deleteProduct(args.id);
+          const result = await this.productService.deleteProduct(args.id, currentUser);
           return JSON.stringify({
             success: result.success,
             message: result.message,
@@ -545,7 +544,7 @@ export class AiAgentService {
         // ── UPDATE PRODUCT ────────────────────────────────────────────────
         case 'update_product': {
           const { id, ...updateData } = args;
-          const result = await this.productService.updateProduct(id, updateData);
+          const result = await this.productService.updateProduct(id, updateData, currentUser);
           return JSON.stringify({
             success: result.success,
             message: result.message,

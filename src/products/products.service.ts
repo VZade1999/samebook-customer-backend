@@ -19,18 +19,43 @@ export class ProductService {
     this.Products = this.dbProvider.db.products;
   }
 
-  async createProduct(data: CreateProductDto) {
+  // A category_id the client sends must belong to the same company —
+  // otherwise a product could reference (and thus leak/imply) another
+  // tenant's category.
+  private async assertCategoryBelongsToCompany(
+    categoryId: number | undefined,
+    companyId: number,
+  ): Promise<{ success: false; message: string } | null> {
+    if (categoryId === undefined || categoryId === null) return null;
+    const CategoryModel = this.dbProvider.db.product_categories;
+    const category = await CategoryModel.findOne({
+      where: { id: categoryId, company_id: companyId, is_active: 1 },
+    });
+    if (!category) {
+      return { success: false, message: `Category with id ${categoryId} not found` };
+    }
+    return null;
+  }
+
+  async createProduct(data: CreateProductDto, currentUser: any) {
+    const companyId = currentUser.company_id;
     const log = this.appLogger.forContext('ProductService', 'createProduct', {
       name: data.name,
-      companyId: data.company_id,
+      companyId,
     });
 
     log.info('Create product attempt started');
 
+    const categoryError = await this.assertCategoryBelongsToCompany(data.category_id, companyId);
+    if (categoryError) {
+      log.warn('Creation failed — category does not belong to this company');
+      return categoryError;
+    }
+
     if (data.product_code) {
       const existingProduct = await this.Products.findOne({
         where: {
-          company_id: data.company_id,
+          company_id: companyId,
           product_code: data.product_code,
         },
       });
@@ -55,7 +80,10 @@ export class ProductService {
     try {
       product = await this.Products.create(
         {
-          company_id: data.company_id,
+          // Always the caller's own company — never trust a company_id the
+          // client sends, or one tenant could create products under
+          // another tenant's account just by editing the request body.
+          company_id: companyId,
           product_code: data.product_code,
           name: data.name,
           description: data.description,
@@ -338,7 +366,7 @@ export class ProductService {
     };
   }
 
-  async getProductById(id: number) {
+  async getProductById(id: number, currentUser: any) {
     const log = this.appLogger.forContext('ProductService', 'getProductById', {
       productId: id,
     });
@@ -347,7 +375,7 @@ export class ProductService {
 
     try {
       const product = await this.Products.findOne({
-        where: { id, is_active: true },
+        where: { id, company_id: currentUser.company_id, is_active: true },
         include: [
           {
             association: 'variants',
@@ -395,7 +423,7 @@ export class ProductService {
     }
   }
 
-  async deleteProduct(id: number) {
+  async deleteProduct(id: number, currentUser: any) {
     const log = this.appLogger.forContext('ProductService', 'deleteProduct', {
       productId: id,
     });
@@ -404,7 +432,7 @@ export class ProductService {
 
     let product: products | null;
     try {
-      product = await this.Products.findOne({ where: { id } });
+      product = await this.Products.findOne({ where: { id, company_id: currentUser.company_id } });
     } catch (err) {
       log.error('DB error while fetching product', err);
       throw new Error('DATABASE_ERROR');
@@ -459,7 +487,7 @@ export class ProductService {
     };
   }
 
-  async activateProduct(id: number) {
+  async activateProduct(id: number, currentUser: any) {
     const log = this.appLogger.forContext('ProductService', 'activateProduct', {
       productId: id,
     });
@@ -468,7 +496,7 @@ export class ProductService {
 
     let product: products | null;
     try {
-      product = await this.Products.findOne({ where: { id } });
+      product = await this.Products.findOne({ where: { id, company_id: currentUser.company_id } });
     } catch (err) {
       log.error('DB error while fetching product', err);
       throw new Error('DATABASE_ERROR');
@@ -498,7 +526,7 @@ export class ProductService {
     };
   }
 
-  async deactivateProduct(id: number) {
+  async deactivateProduct(id: number, currentUser: any) {
     const log = this.appLogger.forContext('ProductService', 'deactivateProduct', {
       productId: id,
     });
@@ -507,7 +535,7 @@ export class ProductService {
 
     let product: products | null;
     try {
-      product = await this.Products.findOne({ where: { id } });
+      product = await this.Products.findOne({ where: { id, company_id: currentUser.company_id } });
     } catch (err) {
       log.error('DB error while fetching product', err);
       throw new Error('DATABASE_ERROR');
@@ -537,7 +565,7 @@ export class ProductService {
     };
   }
 
-  async updateProduct(id: number, data: UpdateProductDto) {
+  async updateProduct(id: number, data: UpdateProductDto, currentUser: any) {
     const log = this.appLogger.forContext('ProductService', 'updateProduct', {
       productId: id,
     });
@@ -546,7 +574,9 @@ export class ProductService {
 
     let product: products | null;
     try {
-      product = await this.Products.findOne({ where: { id, is_active: true } });
+      product = await this.Products.findOne({
+        where: { id, company_id: currentUser.company_id, is_active: true },
+      });
     } catch (err) {
       log.error('DB error while fetching product', err);
       throw new Error('DATABASE_ERROR');
@@ -555,6 +585,12 @@ export class ProductService {
     if (!product) {
       log.warn('Update failed — product not found');
       return { success: false, message: `Product with id ${id} not found` };
+    }
+
+    const categoryError = await this.assertCategoryBelongsToCompany(data.category_id, product.company_id);
+    if (categoryError) {
+      log.warn('Update failed — category does not belong to this company');
+      return categoryError;
     }
 
     if (data.product_code && data.product_code !== product.product_code) {
@@ -650,16 +686,23 @@ export class ProductService {
         );
 
         if (item.id) {
-          if (Object.keys(updateData).length === 0) {
-            continue;
-          }
-
-          const [updatedCount] = await Model.update(updateData, {
-            where: { id: item.id, product_id: id },
-            transaction,
-          });
-
-          if (updatedCount === 0) {
+          // Check row existence against `existingIds` (fetched up front) —
+          // NOT against Model.update()'s returned affected-row count.
+          // MySQL/mysql2 reports 0 affected rows whenever the WHERE
+          // matches but no column value actually changed (e.g. saving a
+          // variant/image without editing it) — that is NOT the same as
+          // "row doesn't exist". Treating it as "doesn't exist" was
+          // silently duplicating every unchanged existing row on each save.
+          if (existingIds.includes(item.id)) {
+            if (Object.keys(updateData).length > 0) {
+              await Model.update(updateData, {
+                where: { id: item.id, product_id: id },
+                transaction,
+              });
+            }
+          } else {
+            // Client sent an id that doesn't belong to this product (e.g.
+            // stale state) — create it fresh rather than silently no-op'ing.
             await Model.create({ product_id: id, ...mappedData }, { transaction });
           }
 

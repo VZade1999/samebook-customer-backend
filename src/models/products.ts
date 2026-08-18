@@ -183,6 +183,21 @@ export class products
             fields: [{ name: 'sku' }],
           },
           {
+            name: 'barcode',
+            using: 'BTREE',
+            fields: [{ name: 'barcode' }],
+          },
+          {
+            name: 'company_id_sku',
+            using: 'BTREE',
+            fields: [{ name: 'company_id' }, { name: 'sku' }],
+          },
+          {
+            name: 'company_id_barcode',
+            using: 'BTREE',
+            fields: [{ name: 'company_id' }, { name: 'barcode' }],
+          },
+          {
             name: 'products_ibfk_2',
             using: 'BTREE',
             fields: [{ name: 'category_id' }],
