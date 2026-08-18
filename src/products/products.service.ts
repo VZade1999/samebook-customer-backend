@@ -37,6 +37,33 @@ export class ProductService {
     return null;
   }
 
+  // A warehouse_id an inventory item carries must belong to the same
+  // company — otherwise inventory could reference (and thus leak/imply)
+  // another tenant's warehouse.
+  private async assertWarehousesBelongToCompany(
+    inventory: { warehouse_id?: number }[] | undefined,
+    companyId: number,
+  ): Promise<{ success: false; message: string } | null> {
+    if (!Array.isArray(inventory) || inventory.length === 0) return null;
+    const warehouseIds = [
+      ...new Set(
+        inventory
+          .map((item) => item.warehouse_id)
+          .filter((id): id is number => id !== undefined && id !== null),
+      ),
+    ];
+    if (warehouseIds.length === 0) return null;
+
+    const WarehouseModel = this.dbProvider.db.warehouses;
+    const found = await WarehouseModel.findAll({
+      where: { id: warehouseIds, company_id: companyId, is_active: 1 },
+    });
+    if (found.length !== warehouseIds.length) {
+      return { success: false, message: 'One or more warehouses were not found' };
+    }
+    return null;
+  }
+
   async createProduct(data: CreateProductDto, currentUser: any) {
     const companyId = currentUser.company_id;
     const log = this.appLogger.forContext('ProductService', 'createProduct', {
@@ -50,6 +77,12 @@ export class ProductService {
     if (categoryError) {
       log.warn('Creation failed — category does not belong to this company');
       return categoryError;
+    }
+
+    const warehouseError = await this.assertWarehousesBelongToCompany(data.inventory, companyId);
+    if (warehouseError) {
+      log.warn('Creation failed — warehouse does not belong to this company');
+      return warehouseError;
     }
 
     if (data.product_code) {
@@ -591,6 +624,12 @@ export class ProductService {
     if (categoryError) {
       log.warn('Update failed — category does not belong to this company');
       return categoryError;
+    }
+
+    const warehouseError = await this.assertWarehousesBelongToCompany(data.inventory, product.company_id);
+    if (warehouseError) {
+      log.warn('Update failed — warehouse does not belong to this company');
+      return warehouseError;
     }
 
     if (data.product_code && data.product_code !== product.product_code) {

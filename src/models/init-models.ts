@@ -207,6 +207,12 @@ import type {
   invoiceActivityLogsCreationAttributes,
 } from './invoice_activity_logs';
 
+import { warehouses as _warehouses, warehouses } from './warehouses';
+import type {
+  warehousesAttributes,
+  warehousesCreationAttributes,
+} from './warehouses';
+
 export {
   _users as users,
   _roles as roles,
@@ -236,6 +242,7 @@ export {
   _invoice_items as invoice_items,
   _invoice_payments as invoice_payments,
   _invoice_activity_logs as invoice_activity_logs,
+  _warehouses as warehouses,
 };
 
 export type {
@@ -266,6 +273,7 @@ export type {
   invoiceItemsAttributes,
   invoicePaymentsAttributes,
   invoiceActivityLogsAttributes,
+  warehousesAttributes,
 };
 
 export function initModels(sequelize: Sequelize) {
@@ -291,6 +299,7 @@ export function initModels(sequelize: Sequelize) {
   const customer_contacts = _customer_contacts.initModel(sequelize);
   const customer_addresses = _customer_addresses.initModel(sequelize);
   const invoices = _invoices.initModel(sequelize);
+  const warehouses = _warehouses.initModel(sequelize);
 
 const invoice_items =
   _invoice_items.initModel(sequelize);
@@ -731,6 +740,26 @@ invoice_activity_logs.belongsTo(users, {
   foreignKey: 'changed_by',
 });
 
+  // COMPANIES <-> WAREHOUSES
+  companies.hasMany(warehouses, {
+    as: 'warehouses',
+    foreignKey: 'company_id',
+  });
+  warehouses.belongsTo(companies, {
+    as: 'company',
+    foreignKey: 'company_id',
+  });
+
+  // WAREHOUSES <-> INVENTORY
+  warehouses.hasMany(product_inventory, {
+    as: 'inventory',
+    foreignKey: 'warehouse_id',
+  });
+  product_inventory.belongsTo(warehouses, {
+    as: 'warehouse',
+    foreignKey: 'warehouse_id',
+  });
+
   // users <-> refresh_tokens
   users.hasMany(refresh_tokens, { as: 'refresh_tokens', foreignKey: 'user_id' });
   refresh_tokens.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
@@ -776,5 +805,6 @@ invoice_activity_logs.belongsTo(users, {
     invoice_items,
     invoice_payments,
     invoice_activity_logs,
+    warehouses,
   };
 }

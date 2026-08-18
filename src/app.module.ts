@@ -15,6 +15,8 @@ import { PermissionsModule } from './rbac/permissions/permissions.module';
 import { InvoiceModule } from './invoice/invoice.module';
 import { AuthModule } from './auth/auth.module';
 import { CallbackModule } from './callback/callback.module';
+import { CategoriesModule } from './categories/categories.module';
+import { WarehousesModule } from './warehouses/warehouses.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -44,6 +46,8 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     InvoiceModule,
     AuthModule,
     CallbackModule,
+    CategoriesModule,
+    WarehousesModule,
   ],
   //controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],
