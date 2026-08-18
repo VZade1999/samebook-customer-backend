@@ -219,6 +219,12 @@ import type {
   attendanceCreationAttributes,
 } from './attendance';
 
+import { leave_requests as _leave_requests, leave_requests } from './leave_requests';
+import type {
+  leave_requestsAttributes,
+  leave_requestsCreationAttributes,
+} from './leave_requests';
+
 export {
   _users as users,
   _roles as roles,
@@ -250,6 +256,7 @@ export {
   _invoice_activity_logs as invoice_activity_logs,
   _warehouses as warehouses,
   _attendance as attendance,
+  _leave_requests as leave_requests,
 };
 
 export type {
@@ -282,6 +289,7 @@ export type {
   invoiceActivityLogsAttributes,
   warehousesAttributes,
   attendanceAttributes,
+  leave_requestsAttributes,
 };
 
 export function initModels(sequelize: Sequelize) {
@@ -309,6 +317,7 @@ export function initModels(sequelize: Sequelize) {
   const invoices = _invoices.initModel(sequelize);
   const warehouses = _warehouses.initModel(sequelize);
   const attendance = _attendance.initModel(sequelize);
+  const leave_requests = _leave_requests.initModel(sequelize);
 
 const invoice_items =
   _invoice_items.initModel(sequelize);
@@ -773,6 +782,11 @@ invoice_activity_logs.belongsTo(users, {
   users.hasMany(attendance, { as: 'attendance', foreignKey: 'user_id' });
   attendance.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
 
+  // USERS <-> LEAVE_REQUESTS
+  users.hasMany(leave_requests, { as: 'leave_requests', foreignKey: 'user_id' });
+  leave_requests.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
+  leave_requests.belongsTo(users, { as: 'reviewer', foreignKey: 'reviewed_by' });
+
   // users <-> refresh_tokens
   users.hasMany(refresh_tokens, { as: 'refresh_tokens', foreignKey: 'user_id' });
   refresh_tokens.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
@@ -820,5 +834,6 @@ invoice_activity_logs.belongsTo(users, {
     invoice_activity_logs,
     warehouses,
     attendance,
+    leave_requests,
   };
 }

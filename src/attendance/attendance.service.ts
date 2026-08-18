@@ -1,10 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { Op } from 'sequelize';
 import { AppLogger } from '../common/logger/logger.service';
 import { PunchDto } from './dto/punch.dto';
 
-// Self-service only: every method here resolves to the caller's own
-// attendance rows (req.user.user_id, set by AuthGuard from the JWT) — there
-// is no team/admin attendance view in this pass.
+// Punch in/out/today/history are self-service — they resolve to the
+// caller's own rows (req.user.user_id, set by AuthGuard from the JWT).
+// getTeamSummary is the one exception: it is company-wide and only reachable
+// via the `attendance.manage` permission (ADMIN/SUPER_ADMIN), gated in the
+// controller.
 export interface AttendanceRequester {
   userId: number;
   companyId: number;
@@ -26,6 +29,10 @@ export class AttendanceService {
 
   private get Attendance() {
     return this.dbProvider.db.attendance;
+  }
+
+  private get Users() {
+    return this.dbProvider.db.users;
   }
 
   async punchIn(data: PunchDto, requester: AttendanceRequester) {
@@ -134,6 +141,65 @@ export class AttendanceService {
       };
     } catch (err) {
       log.error('DB error while fetching attendance history', err);
+      throw new Error('DATABASE_ERROR');
+    }
+  }
+
+  // Admin-only: every employee's attendance for the caller's company for a
+  // given calendar month, grouped into a per-employee summary. One query for
+  // the whole company rather than one per employee.
+  async getTeamSummary(month: string, requester: AttendanceRequester) {
+    const log = this.appLogger.forContext('AttendanceService', 'getTeamSummary', {
+      companyId: requester.companyId,
+      month,
+    });
+
+    if (!/^\d{4}-\d{2}$/.test(month)) {
+      return { success: false, message: 'month must be in YYYY-MM format' };
+    }
+
+    const [year, mon] = month.split('-').map(Number);
+    const startDate = `${month}-01`;
+    const endDate = `${year}-${String(mon).padStart(2, '0')}-${new Date(year, mon, 0).getDate()}`;
+
+    try {
+      const employees = await this.Users.findAll({
+        where: { company_id: requester.companyId, is_active: 1 },
+        attributes: ['id', 'first_name', 'last_name', 'email'],
+      });
+
+      const sessions = await this.Attendance.findAll({
+        where: {
+          company_id: requester.companyId,
+          work_date: { [Op.between]: [startDate, endDate] },
+        },
+        order: [['punch_in', 'ASC']],
+      });
+
+      const sessionsByUser = new Map<number, any[]>();
+      sessions.forEach((s: any) => {
+        const list = sessionsByUser.get(s.user_id) || [];
+        list.push(s);
+        sessionsByUser.set(s.user_id, list);
+      });
+
+      const summary = employees.map((emp: any) => {
+        const empSessions = sessionsByUser.get(emp.id) || [];
+        const daysPresent = new Set(empSessions.map((s) => s.work_date)).size;
+        const totalMinutes = empSessions.reduce((sum, s) => sum + (s.total_minutes || 0), 0);
+        return {
+          user_id: emp.id,
+          name: [emp.first_name, emp.last_name].filter(Boolean).join(' ') || emp.email,
+          email: emp.email,
+          days_present: daysPresent,
+          total_minutes: totalMinutes,
+          sessions: empSessions,
+        };
+      });
+
+      return { success: true, message: 'Team attendance summary fetched', data: summary };
+    } catch (err) {
+      log.error('DB error while fetching team attendance summary', err);
       throw new Error('DATABASE_ERROR');
     }
   }

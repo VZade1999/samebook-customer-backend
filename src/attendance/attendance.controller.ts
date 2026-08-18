@@ -116,6 +116,32 @@ export class AttendanceController {
     }
   }
 
+  @Get('/team')
+  @RequirePermissions('attendance.manage')
+  async getTeam(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('month') month: string,
+  ) {
+    const log = this.appLogger.forContext('AttendanceController', 'getTeam', {
+      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+      month,
+    });
+
+    log.info('Request received');
+    try {
+      const response = await this.attendanceService.getTeamSummary(month, this.getRequester(req));
+      if (!response.success) {
+        log.warn(`Team summary rejected — ${response.message}`);
+        return failedRes(res, response.message);
+      }
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      log.error('Unhandled error in getTeam', error);
+      return errorRes(res, error);
+    }
+  }
+
   private getRequester(req: Request): AttendanceRequester {
     const user = (req as any).user;
     return { userId: user?.user_id, companyId: user?.company_id };
