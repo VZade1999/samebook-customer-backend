@@ -379,6 +379,69 @@ export class CustomerService {
       }
 
       // =====================================
+      // DISPLAY NAME / COMPANY NAME / GST NUMBER
+      // =====================================
+      // These live on the customers table itself, same as industry above —
+      // were declared on the DTO but never actually wired into the query.
+
+      if (query.display_name) {
+        whereClause.display_name = {
+          [Op.like]: `%${query.display_name}%`,
+        };
+      }
+
+      if (query.company_name) {
+        whereClause.company_name = {
+          [Op.like]: `%${query.company_name}%`,
+        };
+      }
+
+      if (query.gst_number) {
+        whereClause.gst_number = {
+          [Op.like]: `%${query.gst_number}%`,
+        };
+      }
+
+      // =====================================
+      // CONTACT FILTERS (email / phone)
+      // =====================================
+      // Live on customer_contacts, so filtering means constraining the
+      // association's `where` — required:true only when actually filtering,
+      // so customers with no matching contact are excluded instead of
+      // still showing up via the outer join.
+
+      const contactWhere: any = { is_active: 1 };
+      const hasContactFilter = Boolean(query.email || query.phone);
+
+      if (query.email) {
+        contactWhere.email = { [Op.like]: `%${query.email}%` };
+      }
+      if (query.phone) {
+        contactWhere.phone = { [Op.like]: `%${query.phone}%` };
+      }
+
+      // =====================================
+      // ADDRESS FILTERS (city / state / country)
+      // =====================================
+      // Live on customer_addresses — same required:true-when-filtering
+      // treatment as contacts above.
+
+      const addressWhere: any = { is_active: 1 };
+      const hasAddressFilter = Boolean(
+        query.city || query.state || query.country,
+      );
+
+      if (query.city) {
+        addressWhere.city = { [Op.like]: `%${query.city}%` };
+      }
+      if (query.state) {
+        addressWhere.state = { [Op.like]: `%${query.state}%` };
+      }
+      if (query.country) {
+        addressWhere.country = { [Op.like]: `%${query.country}%` };
+      }
+
+      // =====================================
       // GET DATA
       // =====================================
 
@@ -394,11 +457,9 @@ export class CustomerService {
 
                 as: 'contacts',
 
-                required: false,
+                required: hasContactFilter,
 
-                where: {
-                  is_active: 1,
-                },
+                where: contactWhere,
 
                 attributes: [
                   'id',
@@ -418,11 +479,9 @@ export class CustomerService {
 
                 as: 'addresses',
 
-                required: false,
+                required: hasAddressFilter,
 
-                where: {
-                  is_active: 1,
-                },
+                where: addressWhere,
 
                 attributes: [
                   'id',

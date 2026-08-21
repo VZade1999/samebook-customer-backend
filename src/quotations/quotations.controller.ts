@@ -178,7 +178,11 @@ export class QuotationController {
     );
 
     try {
-      const response = await this.quotationService.updateQuotation(id, body);
+      const response = await this.quotationService.updateQuotation(
+        id,
+        (req as any).user.company_id,
+        body,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);
@@ -201,7 +205,10 @@ export class QuotationController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     try {
-      const response = await this.quotationService.getQuotationDetails(id);
+      const response = await this.quotationService.getQuotationDetails(
+        id,
+        (req as any).user.company_id,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);
@@ -222,7 +229,10 @@ export class QuotationController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     try {
-      const response = await this.quotationService.getQuotationHistory(id);
+      const response = await this.quotationService.getQuotationHistory(
+        id,
+        (req as any).user.company_id,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);
@@ -243,7 +253,10 @@ export class QuotationController {
     @Param('id', ParseIntPipe) id: number,
   ) {
     try {
-      const response = await this.quotationService.getQuotationTimeline(id);
+      const response = await this.quotationService.getQuotationTimeline(
+        id,
+        (req as any).user.company_id,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);
@@ -265,7 +278,11 @@ export class QuotationController {
     @Body('user_id') user_id?: number,
   ) {
     try {
-      const response = await this.quotationService.sendQuotation(id, user_id);
+      const response = await this.quotationService.sendQuotation(
+        id,
+        (req as any).user.company_id,
+        user_id,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);
@@ -307,7 +324,11 @@ export class QuotationController {
     @Body('user_id') user_id: number,
   ) {
     try {
-      const response = await this.quotationService.deleteQuotation(id, user_id);
+      const response = await this.quotationService.deleteQuotation(
+        id,
+        (req as any).user.company_id,
+        user_id,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);

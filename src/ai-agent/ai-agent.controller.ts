@@ -4,10 +4,12 @@ import {
   Post,
   Req,
   Res,
+  UnauthorizedException,
   UseGuards,
   UsePipes,
   ValidationPipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AppLogger } from 'src/common/logger/logger.service';
 import { AiAgentService } from './ai-agent.service';
@@ -24,7 +26,17 @@ export class AiAgentController {
   ) {}
 
   @Post('/chat')
-  @UsePipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  )
+  // The global default (100 req/min/IP, app.module.ts) is far too generous
+  // for an endpoint that triggers a paid LLM call plus a tool-loop of real
+  // DB writes on every request — bounded tighter here specifically.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async chat(@Req() req: Request, @Res() res: Response, @Body() body: ChatDto) {
     const log = this.appLogger.forContext('AiAgentController', 'chat', {
       ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
@@ -32,13 +44,13 @@ export class AiAgentController {
 
     log.info('Request received');
 
-    try {
-      const currentUser = req['user'];
-      if (!currentUser) {
-        log.warn('Unauthorized request');
-        throw new Error('User authentication required');
-      }
+    const currentUser = req['user'];
+    if (!currentUser) {
+      log.warn('Unauthorized request');
+      throw new UnauthorizedException('User authentication required');
+    }
 
+    try {
       const response = await this.aiAgentService.chat(body, currentUser);
 
       if (!response.success) {
@@ -53,5 +65,4 @@ export class AiAgentController {
       return errorRes(res, error);
     }
   }
-  
 }

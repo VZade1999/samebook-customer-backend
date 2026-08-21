@@ -1101,6 +1101,7 @@ export class QuotationService {
 
   async updateQuotation(
     id: number,
+    companyId: number,
     data: UpdateQuotationDto,
   ): Promise<IServiceResponse> {
     const log = this.getLog('updateQuotation', {
@@ -1132,7 +1133,7 @@ export class QuotationService {
         transaction,
       });
 
-      if (!quotation) {
+      if (!quotation || quotation.company_id !== companyId) {
         await transaction.rollback();
         log.warn('Quotation not found', { quotationId: id });
 
@@ -1299,14 +1300,17 @@ export class QuotationService {
     }
   }
 
-  async getQuotationDetails(id: number): Promise<IServiceResponse> {
+  async getQuotationDetails(
+    id: number,
+    companyId: number,
+  ): Promise<IServiceResponse> {
     const log = this.getLog('getQuotationDetails', { quotationId: id });
     log.info('Fetching quotation details');
 
     try {
       const quotation = await this.fetchQuotationById(id);
 
-      if (!quotation) {
+      if (!quotation || quotation.company_id !== companyId) {
         log.warn('Quotation not found', { quotationId: id });
 
         return {
@@ -1332,11 +1336,24 @@ export class QuotationService {
     }
   }
 
-  async getQuotationHistory(id: number): Promise<IServiceResponse> {
+  async getQuotationHistory(
+    id: number,
+    companyId: number,
+  ): Promise<IServiceResponse> {
     const log = this.getLog('getQuotationHistory', { quotationId: id });
     log.info('Fetching quotation history');
 
     try {
+      const quotation = await this.Quotations.findByPk(id);
+      if (!quotation || quotation.company_id !== companyId) {
+        log.warn('Quotation not found', { quotationId: id });
+        return {
+          success: false,
+          message: 'Quotation not found',
+          data: null,
+        };
+      }
+
       const history = await this.QuotationVersions.findAll({
         where: {
           quotation_id: id,
@@ -1367,11 +1384,24 @@ export class QuotationService {
     }
   }
 
-  async getQuotationTimeline(id: number): Promise<IServiceResponse> {
+  async getQuotationTimeline(
+    id: number,
+    companyId: number,
+  ): Promise<IServiceResponse> {
     const log = this.getLog('getQuotationTimeline', { quotationId: id });
     log.info('Fetching quotation timeline');
 
     try {
+      const quotation = await this.Quotations.findByPk(id);
+      if (!quotation || quotation.company_id !== companyId) {
+        log.warn('Quotation not found', { quotationId: id });
+        return {
+          success: false,
+          message: 'Quotation not found',
+          data: null,
+        };
+      }
+
       const timeline = await this.QuotationVersions.findAll({
         where: {
           quotation_id: id,
@@ -1409,7 +1439,11 @@ export class QuotationService {
     }
   }
 
-  async sendQuotation(id: number, userId?: number): Promise<IServiceResponse> {
+  async sendQuotation(
+    id: number,
+    companyId: number,
+    userId?: number,
+  ): Promise<IServiceResponse> {
     const log = this.getLog('sendQuotation', { quotationId: id });
     log.info('Sending quotation');
 
@@ -1420,7 +1454,7 @@ export class QuotationService {
         transaction,
       });
 
-      if (!quotation) {
+      if (!quotation || quotation.company_id !== companyId) {
         await transaction.rollback();
         log.warn('Quotation not found', { quotationId: id });
 
@@ -1576,7 +1610,11 @@ export class QuotationService {
     }
   }
 
-  async deleteQuotation(id: number, userId: number): Promise<IServiceResponse> {
+  async deleteQuotation(
+    id: number,
+    companyId: number,
+    userId: number,
+  ): Promise<IServiceResponse> {
     const log = this.getLog('deleteQuotation', {
       quotationId: id,
     });
@@ -1588,7 +1626,7 @@ export class QuotationService {
         transaction,
       });
 
-      if (!quotation) {
+      if (!quotation || quotation.company_id !== companyId) {
         await transaction.rollback();
 
         return {
