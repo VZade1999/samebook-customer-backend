@@ -15,6 +15,7 @@ import {
   IMetadataInput,
 } from '../interfaces/company.interfaces';
 import { company_addressesCreationAttributes } from 'src/models/company_addresses';
+import { getStateCodeFromGstin } from '../../common/gst-state.util';
 
 /**
  * Removes undefined values from an object while preserving full type safety.
@@ -70,6 +71,8 @@ export class CompanyMapper {
       address_state: input.address_state,
       address_country: input.address_country,
       address_postal_code: input.address_postal_code,
+      gst_no: input.gst_no,
+      gst_state_code: getStateCodeFromGstin(input.gst_no) ?? undefined,
       notes: input.notes,
       is_active: input.id ? 1 : undefined,
     }) as company_locationsCreationAttributes;

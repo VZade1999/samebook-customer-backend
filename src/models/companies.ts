@@ -8,6 +8,7 @@ export interface companiesAttributes {
   legal_name?: string;
   registration_number?: string;
   gst_no?: string;
+  gst_state_code?: string;
   website?: string;
   industry?: string;
   primary_email?: string;
@@ -28,6 +29,7 @@ export type companiesOptionalAttributes =
   | 'legal_name'
   | 'registration_number'
   | 'gst_no'
+  | 'gst_state_code'
   | 'website'
   | 'industry'
   | 'primary_email'
@@ -53,6 +55,7 @@ export class companies
   legal_name?: string;
   registration_number?: string;
   gst_no?: string;
+  gst_state_code?: string;
   website?: string;
   industry?: string;
   primary_email?: string;
@@ -97,6 +100,10 @@ export class companies
         },
         gst_no: {
           type: DataTypes.STRING(150),
+          allowNull: true,
+        },
+        gst_state_code: {
+          type: DataTypes.STRING(2),
           allowNull: true,
         },
         website: {

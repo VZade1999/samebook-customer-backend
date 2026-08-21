@@ -17,6 +17,8 @@ export interface company_locationsAttributes {
   address_state?: string;
   address_country?: string;
   address_postal_code?: string;
+  gst_no?: string;
+  gst_state_code?: string;
   notes?: string;
   is_active?: number;
   created_at?: Date;
@@ -40,6 +42,8 @@ export type company_locationsOptionalAttributes =
   | 'address_state'
   | 'address_country'
   | 'address_postal_code'
+  | 'gst_no'
+  | 'gst_state_code'
   | 'notes'
   | 'is_active'
   | 'created_at'
@@ -140,6 +144,14 @@ export class company_locations
         },
         address_postal_code: {
           type: DataTypes.STRING(50),
+          allowNull: true,
+        },
+        gst_no: {
+          type: DataTypes.STRING(15),
+          allowNull: true,
+        },
+        gst_state_code: {
+          type: DataTypes.STRING(2),
           allowNull: true,
         },
         notes: {

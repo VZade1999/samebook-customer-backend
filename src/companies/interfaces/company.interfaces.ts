@@ -29,6 +29,7 @@ export interface ILocationInput {
   address_state?: string;
   address_country?: string;
   address_postal_code?: string;
+  gst_no?: string;
   notes?: string;
 }
 

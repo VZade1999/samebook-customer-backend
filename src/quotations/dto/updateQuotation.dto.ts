@@ -64,6 +64,11 @@ shipping_address_id?: number;
   @IsOptional()
   @IsNumber()
   @Type(() => Number)
+  issuing_location_id?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
   sub_total?: number;
 
   @IsOptional()

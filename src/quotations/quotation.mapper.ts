@@ -119,6 +119,10 @@ export class QuotationMapper {
         place_of_supply_state_id: data.place_of_supply_state_id,
       }),
 
+      ...(data.issuing_location_id !== undefined && {
+        issuing_location_id: data.issuing_location_id,
+      }),
+
       ...(data.sub_total !== undefined && {
         sub_total: data.sub_total,
       }),

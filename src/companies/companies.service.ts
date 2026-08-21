@@ -8,6 +8,7 @@ import { company_bank_accounts } from '../models/company_bank_accounts';
 import { Model, ModelStatic } from 'sequelize';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { CompanyMapper } from './mappers/company.mapper';
+import { getStateCodeFromGstin } from '../common/gst-state.util';
 
 // Identity context passed down from the controller (and from the AI agent's
 // tool-calling path, which invokes this service directly) for every call.
@@ -205,7 +206,10 @@ export class CompanyService {
           ...(data.registration_number !== undefined && {
             registration_number: data.registration_number,
           }),
-          ...(data.gst_no !== undefined && { gst_no: data.gst_no }),
+          ...(data.gst_no !== undefined && {
+            gst_no: data.gst_no,
+            gst_state_code: getStateCodeFromGstin(data.gst_no) ?? null,
+          }),
           ...(data.website !== undefined && { website: data.website }),
           ...(data.industry !== undefined && { industry: data.industry }),
           ...(data.primary_email !== undefined && { primary_email: data.primary_email }),

@@ -31,6 +31,12 @@ import { quotation_activity_logs } from '../models/quotation-activity-logs';
 import { customer_contacts } from '../models/customer_contacts';
 import { customer_addresses } from '../models/customer_addresses';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
+import {
+  TaxType,
+  determineTaxType,
+  getStateCodeFromGstin,
+  getStateCodeFromName,
+} from '../common/gst-state.util';
 
 @Injectable()
 export class QuotationService {
@@ -43,6 +49,7 @@ export class QuotationService {
   private readonly Users: typeof users;
   private readonly CustomerContacts: typeof customer_contacts;
   private readonly CustomerAddresses: typeof customer_addresses;
+  private readonly CompanyLocations: any;
 
   constructor(
     @Inject('DATABASE_CONNECTION')
@@ -59,10 +66,66 @@ export class QuotationService {
     this.Users = this.dbProvider.db.users;
     this.CustomerContacts = this.dbProvider.db.customer_contacts;
     this.CustomerAddresses = this.dbProvider.db.customer_addresses;
+    this.CompanyLocations = this.dbProvider.db.company_locations;
   }
 
   private getLog(operation: string, meta: Record<string, unknown> = {}) {
     return this.appLogger.forContext('QuotationService', operation, meta);
+  }
+
+  // Authoritative CGST/SGST vs IGST determination: never trust the tax split
+  // the client sends, always resolve it server-side from the seller's actual
+  // GST-registered state (company default, or a specific branch location if
+  // this document is issued under one) vs. the buyer's place of supply.
+  private async resolveTaxType(
+    companyId: number | undefined,
+    issuingLocationId: number | undefined | null,
+    buyerStateName: string | undefined | null,
+  ): Promise<TaxType> {
+    let sellerStateCode: string | null = null;
+
+    if (issuingLocationId) {
+      const location = await this.CompanyLocations?.findOne({
+        where: { id: issuingLocationId, company_id: companyId },
+      });
+      if (location) {
+        sellerStateCode =
+          location.gst_state_code ||
+          getStateCodeFromGstin(location.gst_no) ||
+          getStateCodeFromName(location.address_state) ||
+          null;
+      }
+    }
+
+    if (!sellerStateCode && companyId) {
+      const company = await this.Companies.findByPk(companyId);
+      if (company) {
+        sellerStateCode =
+          (company as any).gst_state_code ||
+          getStateCodeFromGstin(company.gst_no) ||
+          null;
+      }
+    }
+
+    const buyerStateCode = getStateCodeFromName(buyerStateName);
+    return determineTaxType(sellerStateCode, buyerStateCode);
+  }
+
+  // Zeroes out whichever of CGST+SGST / IGST doesn't apply to the resolved
+  // tax type, regardless of what the client sent for those percents.
+  private applyTaxType(
+    taxType: TaxType,
+    cgstPercent?: number,
+    sgstPercent?: number,
+    igstPercent?: number,
+  ) {
+    if (taxType === 'NO_GST') {
+      return { cgstPercent: 0, sgstPercent: 0, igstPercent: 0 };
+    }
+    if (taxType === 'INTRA_STATE') {
+      return { cgstPercent: cgstPercent ?? 0, sgstPercent: sgstPercent ?? 0, igstPercent: 0 };
+    }
+    return { cgstPercent: 0, sgstPercent: 0, igstPercent: igstPercent ?? 0 };
   }
 
   // Fire-and-forget: keeps the product catalog in sync with whatever the
@@ -432,6 +495,7 @@ export class QuotationService {
       notes: data.notes,
       terms_conditions: data.terms_conditions,
       place_of_supply_state_id: data.place_of_supply_state_id,
+      issuing_location_id: data.issuing_location_id,
       created_by: data.user_id,
       updated_by: data.user_id,
       contact_person_id: data.contact_person_id,
@@ -948,6 +1012,21 @@ export class QuotationService {
 
       data.shipping_address_snapshot = shippingAddress;
 
+      const taxType = await this.resolveTaxType(
+        data.company_id,
+        data.issuing_location_id,
+        billingAddress?.state || shippingAddress?.state,
+      );
+      const adjustedTax = this.applyTaxType(
+        taxType,
+        data.cgst_percent,
+        data.sgst_percent,
+        data.igst_percent,
+      );
+      data.cgst_percent = adjustedTax.cgstPercent;
+      data.sgst_percent = adjustedTax.sgstPercent;
+      data.igst_percent = adjustedTax.igstPercent;
+
       const numberInfo = await this.generateQuotationNumber(
         data.company_id,
         transaction,
@@ -1090,7 +1169,10 @@ export class QuotationService {
         data.transport_charges !== undefined ||
         data.cgst_percent !== undefined ||
         data.sgst_percent !== undefined ||
-        data.igst_percent !== undefined,
+        data.igst_percent !== undefined ||
+        data.billing_address_id !== undefined ||
+        data.shipping_address_id !== undefined ||
+        data.issuing_location_id !== undefined,
       );
 
       if (shouldRecalcTotals) {
@@ -1104,14 +1186,22 @@ export class QuotationService {
                 discount_percent: item.discount_percent,
               }));
 
-        const totals = this.computeTotalsFromItems(
-          itemsToRecalc,
-          data.discount_amount !== undefined
-            ? data.discount_amount
-            : quotation.discount_amount,
-          data.transport_charges !== undefined
-            ? data.transport_charges
-            : quotation.transport_charges,
+        const buyerStateName =
+          (updatePayload as any).billing_address_snapshot?.state ||
+          (updatePayload as any).shipping_address_snapshot?.state ||
+          (quotation as any).billing_address_snapshot?.state ||
+          (quotation as any).shipping_address_snapshot?.state;
+
+        const taxType = await this.resolveTaxType(
+          quotation.company_id,
+          data.issuing_location_id !== undefined
+            ? data.issuing_location_id
+            : (quotation as any).issuing_location_id,
+          buyerStateName,
+        );
+
+        const adjustedTax = this.applyTaxType(
+          taxType,
           data.cgst_percent !== undefined
             ? data.cgst_percent
             : quotation.cgst_percent,
@@ -1121,6 +1211,19 @@ export class QuotationService {
           data.igst_percent !== undefined
             ? data.igst_percent
             : quotation.igst_percent,
+        );
+
+        const totals = this.computeTotalsFromItems(
+          itemsToRecalc,
+          data.discount_amount !== undefined
+            ? data.discount_amount
+            : quotation.discount_amount,
+          data.transport_charges !== undefined
+            ? data.transport_charges
+            : quotation.transport_charges,
+          adjustedTax.cgstPercent,
+          adjustedTax.sgstPercent,
+          adjustedTax.igstPercent,
         );
 
         Object.assign(updatePayload, {

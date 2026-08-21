@@ -62,5 +62,9 @@ export class CreateCompanyLocationDto {
 
   @IsOptional()
   @IsString()
+  gst_no?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }

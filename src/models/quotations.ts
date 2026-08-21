@@ -47,6 +47,8 @@ export interface quotationsAttributes {
 
   place_of_supply_state_id?: number;
 
+  issuing_location_id?: number;
+
   created_by?: number;
 
   updated_by?: number;
@@ -111,6 +113,7 @@ export type quotationsOptionalAttributes =
   | 'notes'
   | 'terms_conditions'
   | 'place_of_supply_state_id'
+  | 'issuing_location_id'
   | 'created_by'
   | 'updated_by'
   | 'created_at'
@@ -185,6 +188,8 @@ export class quotations
   terms_conditions?: string;
 
   place_of_supply_state_id?: number;
+
+  issuing_location_id?: number;
 
   created_by?: number;
 
@@ -380,6 +385,11 @@ export class quotations
         },
 
         place_of_supply_state_id: {
+          type: DataTypes.BIGINT,
+          allowNull: true,
+        },
+
+        issuing_location_id: {
           type: DataTypes.BIGINT,
           allowNull: true,
         },
