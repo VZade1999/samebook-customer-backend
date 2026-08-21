@@ -40,22 +40,66 @@ export class AttendanceService {
       userId: requester.userId,
     });
 
+    const now = new Date();
+    const today = toWorkDate(now);
+
     const openSession = await this.Attendance.findOne({
       where: { user_id: requester.userId, punch_out: null },
     });
 
     if (openSession) {
-      log.warn('Punch-in rejected — already punched in');
-      return { success: false, message: 'You are already punched in' };
+      if (openSession.work_date === today) {
+        log.warn('Punch-in rejected — already punched in');
+        return { success: false, message: 'You are already punched in' };
+      }
+
+      // Left open from a previous day (forgot to punch out) — auto-close it
+      // at end-of-day for that date so it stops blocking today's punch-in.
+      try {
+        const endOfStaleDay = new Date(`${openSession.work_date}T23:59:59`);
+        const staleMinutes = Math.max(
+          0,
+          Math.round(
+            (endOfStaleDay.getTime() - new Date(openSession.punch_in).getTime()) / 60000,
+          ),
+        );
+        await openSession.update({
+          punch_out: endOfStaleDay,
+          total_minutes: staleMinutes,
+          notes: [openSession.notes, 'Auto punched-out — missed check-out']
+            .filter(Boolean)
+            .join(' | ')
+            .slice(0, 255),
+        });
+        log.warn('Auto-closed a stale open session from a previous day', {
+          staleWorkDate: openSession.work_date,
+        });
+      } catch (err) {
+        log.error('DB error auto-closing stale attendance session', err);
+        throw new Error('DATABASE_ERROR');
+      }
     }
 
-    const now = new Date();
+    // Once-per-day rule: today's attendance is already complete if a record
+    // for today exists at this point (it can't be an open one — that case
+    // is handled above — so it must already be punched out).
+    const existingToday = await this.Attendance.findOne({
+      where: { user_id: requester.userId, work_date: today },
+    });
+    if (existingToday) {
+      log.warn('Punch-in rejected — attendance already completed today');
+      return {
+        success: false,
+        message: 'You have already completed your attendance for today',
+      };
+    }
+
     try {
       const record = await this.Attendance.create({
         user_id: requester.userId,
         company_id: requester.companyId,
         punch_in: now,
-        work_date: toWorkDate(now),
+        work_date: today,
         notes: data.notes ?? null,
       });
       log.info('Punched in successfully');
@@ -71,12 +115,20 @@ export class AttendanceService {
       userId: requester.userId,
     });
 
+    // Scoped to today only — a stale prior-day open session is only ever
+    // closed automatically via the next punch-in (see punchIn above), never
+    // by a punch-out call, so this never has to reason about which day's
+    // session it's closing.
     const openSession = await this.Attendance.findOne({
-      where: { user_id: requester.userId, punch_out: null },
+      where: {
+        user_id: requester.userId,
+        punch_out: null,
+        work_date: toWorkDate(new Date()),
+      },
     });
 
     if (!openSession) {
-      log.warn('Punch-out rejected — no open session');
+      log.warn('Punch-out rejected — no open session for today');
       return { success: false, message: 'You are not currently punched in' };
     }
 

@@ -41,12 +41,20 @@ export class LeaveService {
       return { success: false, message: '"To" date cannot be before "From" date' };
     }
 
+    const leaveType = data.leave_type ?? 'FULL_DAY';
+    if (leaveType === 'HALF_DAY' && data.from_date !== data.to_date) {
+      log.warn('Leave request rejected — half-day leave must be a single date');
+      return { success: false, message: 'Half-day leave must have the same "From" and "To" date' };
+    }
+
     try {
       const record = await this.LeaveRequests.create({
         user_id: requester.userId,
         company_id: requester.companyId,
         from_date: data.from_date,
         to_date: data.to_date,
+        leave_type: leaveType,
+        half_day_period: leaveType === 'HALF_DAY' ? data.half_day_period : null,
         reason: data.reason.trim(),
         status: 'pending',
       });

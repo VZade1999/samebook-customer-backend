@@ -7,6 +7,8 @@ export interface leave_requestsAttributes {
   company_id: number;
   from_date: string;
   to_date: string;
+  leave_type: string;
+  half_day_period?: string;
   reason: string;
   status: string;
   reviewed_by?: number;
@@ -20,6 +22,8 @@ export type leave_requestsPk = 'id';
 export type leave_requestsId = leave_requests[leave_requestsPk];
 export type leave_requestsOptionalAttributes =
   | 'id'
+  | 'leave_type'
+  | 'half_day_period'
   | 'status'
   | 'reviewed_by'
   | 'reviewed_at'
@@ -40,6 +44,8 @@ export class leave_requests
   company_id!: number;
   from_date!: string;
   to_date!: string;
+  leave_type!: string;
+  half_day_period?: string;
   reason!: string;
   status!: string;
   reviewed_by?: number;
@@ -72,6 +78,15 @@ export class leave_requests
         to_date: {
           type: DataTypes.DATEONLY,
           allowNull: false,
+        },
+        leave_type: {
+          type: DataTypes.STRING(20),
+          allowNull: false,
+          defaultValue: 'FULL_DAY',
+        },
+        half_day_period: {
+          type: DataTypes.STRING(10),
+          allowNull: true,
         },
         reason: {
           type: DataTypes.TEXT,
