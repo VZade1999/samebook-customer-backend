@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { AppLogger } from 'src/common/logger/logger.service';
 import { ChatDto } from './dto/chat.dto';
 import { CustomerService } from 'src/customers/customers.service';
@@ -33,6 +33,25 @@ const GROQ_MAX_RETRIES = 0;
 // header telling us exactly how long to wait.
 const DEFAULT_COOLDOWN_SECONDS = 30;
 
+// How many of the user's most recent stored messages get loaded back in as
+// conversation context — bounds prompt size/cost regardless of how long a
+// user's overall chat history grows. Kept modest because the fixed
+// per-request overhead (system prompt + all tool schemas) already eats a
+// large chunk of this org's Groq tokens-per-minute budget on its own.
+const HISTORY_LOAD_LIMIT = 10;
+
+// True for both of Groq's "you're over budget" shapes: HTTP 429 (too many
+// requests) and HTTP 413 with error.code 'rate_limit_exceeded' (a single
+// request's token count exceeds the tokens-per-minute budget). Both are
+// scoped to the API key that made the call, not global, so callers treat
+// this as "try the next key" rather than an unrecoverable failure.
+function isGroqRateLimitError(err: any): boolean {
+  if (err?.status === 429 || err?.status === 413) return true;
+  if (err?.error?.code === 'rate_limit_exceeded') return true;
+  const msg = String(err?.message ?? '');
+  return msg.includes('429') || msg.includes('rate_limit_exceeded');
+}
+
 type CurrentUser = { company_id: number; user_id: number; permissions?: string[] };
 
 interface GroqKeySlot {
@@ -46,13 +65,18 @@ export class AiAgentService {
   private readonly groqKeys: GroqKeySlot[];
   private nextKeyIndex = 0;
 
+  private readonly AiAgentMessages: any;
+
   constructor(
     private readonly appLogger: AppLogger,
     private readonly customerService: CustomerService,
     private readonly productService: ProductService,
     private readonly companyService: CompanyService,
     private readonly quotationService: QuotationService,
+    @Inject('DATABASE_CONNECTION') private readonly dbProvider: any,
   ) {
+    this.AiAgentMessages = this.dbProvider.db.ai_agent_messages;
+
     // GROQ_API_KEYS: comma-separated list of keys to rotate across when one
     // hits its rate limit. Falls back to the single GROQ_API_KEY var so
     // existing single-key setups keep working unchanged.
@@ -103,8 +127,12 @@ export class AiAgentService {
         this.nextKeyIndex = (idx + 1) % total;
         return result;
       } catch (err: any) {
-        const is429 = err?.status === 429 || err?.message?.includes('429');
-        if (!is429) {
+        // Groq returns two distinct shapes for "you're over the limit":
+        // status 429 for request-count rate limits, and status 413 with
+        // error.code 'rate_limit_exceeded' when a single request's token
+        // count exceeds the org's tokens-per-minute budget. Both are
+        // per-key limits, so rotating to the next key helps with either.
+        if (!isGroqRateLimitError(err)) {
           throw err;
         }
 
@@ -539,6 +567,45 @@ export class AiAgentService {
   }
 
   // =========================
+  // HISTORY
+  // =========================
+  // Persisted server-side per user, scoped by company_id for tenant
+  // isolation/cleanup — the client no longer sends history on each request
+  // (it can't be trusted as-is, and it also can't span devices/tabs/browser
+  // sessions), so context now carries forward automatically for the same
+  // logged-in user regardless of which device or tab they chat from.
+
+  async getRecentHistory(currentUser: CurrentUser) {
+    const rows = await this.AiAgentMessages.findAll({
+      where: { user_id: currentUser.user_id },
+      order: [['created_at', 'DESC']],
+      limit: HISTORY_LOAD_LIMIT,
+    });
+    // DB gives newest-first (for the LIMIT to bound correctly); the model
+    // needs them in chronological order.
+    return rows.reverse().map((row: any) => ({
+      role: row.role as 'user' | 'assistant',
+      content: row.content,
+      created_at: row.created_at,
+    }));
+  }
+
+  private async saveMessage(currentUser: CurrentUser, role: 'user' | 'assistant', content: string) {
+    if (!content) return;
+    await this.AiAgentMessages.create({
+      user_id: currentUser.user_id,
+      company_id: currentUser.company_id,
+      role,
+      content,
+    });
+  }
+
+  async clearHistory(currentUser: CurrentUser) {
+    await this.AiAgentMessages.destroy({ where: { user_id: currentUser.user_id } });
+    return { success: true, message: 'Chat history cleared', data: null };
+  }
+
+  // =========================
   // CHAT
   // =========================
 
@@ -551,14 +618,16 @@ export class AiAgentService {
     log.info('AI Agent chat attempt started');
 
     try {
+      const history = await this.getRecentHistory(currentUser);
+
       // ── Build message history ────────────────────────────────────────────
       const messages: Groq.Chat.ChatCompletionMessageParam[] = [
         {
           role: 'system',
           content: SYSTEM_PROMPT,
         },
-        ...(data.history ?? []).map((msg) => ({
-          role: msg.role as 'user' | 'assistant',
+        ...history.map((msg: { role: 'user' | 'assistant'; content: string }) => ({
+          role: msg.role,
           content: msg.content,
         })),
         {
@@ -634,6 +703,13 @@ export class AiAgentService {
         ? 'I was not able to finish that request in a reasonable number of steps. Please try rephrasing or breaking it into smaller requests.'
         : (responseMessage?.content ?? '');
 
+      // Persist this turn so it's available as context on the user's next
+      // message, from any device/tab. Tool-call intermediate messages
+      // aren't stored — only the user's own message and the model's final
+      // reply, matching what a human reading the chat actually sees.
+      await this.saveMessage(currentUser, 'user', data.message);
+      await this.saveMessage(currentUser, 'assistant', reply);
+
       log.info('AI Agent chat response received');
 
       return {
@@ -650,10 +726,8 @@ export class AiAgentService {
         },
       };
     } catch (err: any) {
-      const is429 = err?.message?.includes('429') || err?.status === 429;
-
-      if (is429) {
-        log.warn('Groq rate limit hit');
+      if (isGroqRateLimitError(err)) {
+        log.warn('Groq rate limit hit (all configured keys exhausted)');
         return {
           success: false,
           message: 'Rate limit exceeded. Please try again in a moment.',

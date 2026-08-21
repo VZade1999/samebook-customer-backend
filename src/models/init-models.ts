@@ -225,6 +225,12 @@ import type {
   leave_requestsCreationAttributes,
 } from './leave_requests';
 
+import { ai_agent_messages as _ai_agent_messages, ai_agent_messages } from './ai_agent_messages';
+import type {
+  ai_agent_messagesAttributes,
+  ai_agent_messagesCreationAttributes,
+} from './ai_agent_messages';
+
 export {
   _users as users,
   _roles as roles,
@@ -257,6 +263,7 @@ export {
   _warehouses as warehouses,
   _attendance as attendance,
   _leave_requests as leave_requests,
+  _ai_agent_messages as ai_agent_messages,
 };
 
 export type {
@@ -290,6 +297,7 @@ export type {
   warehousesAttributes,
   attendanceAttributes,
   leave_requestsAttributes,
+  ai_agent_messagesAttributes,
 };
 
 export function initModels(sequelize: Sequelize) {
@@ -318,6 +326,7 @@ export function initModels(sequelize: Sequelize) {
   const warehouses = _warehouses.initModel(sequelize);
   const attendance = _attendance.initModel(sequelize);
   const leave_requests = _leave_requests.initModel(sequelize);
+  const ai_agent_messages = _ai_agent_messages.initModel(sequelize);
 
 const invoice_items =
   _invoice_items.initModel(sequelize);
@@ -791,6 +800,10 @@ invoice_activity_logs.belongsTo(users, {
   users.hasMany(refresh_tokens, { as: 'refresh_tokens', foreignKey: 'user_id' });
   refresh_tokens.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
 
+  // USERS <-> AI_AGENT_MESSAGES
+  users.hasMany(ai_agent_messages, { as: 'ai_agent_messages', foreignKey: 'user_id' });
+  ai_agent_messages.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
+
   // companies <-> users
   companies.hasMany(users, {
     as: 'users',
@@ -835,5 +848,6 @@ invoice_activity_logs.belongsTo(users, {
     warehouses,
     attendance,
     leave_requests,
+    ai_agent_messages,
   };
 }

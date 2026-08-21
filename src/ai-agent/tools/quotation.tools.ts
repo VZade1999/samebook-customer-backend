@@ -22,9 +22,7 @@ export const quotationTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_quotations_list',
-      description: `Fetch a list of quotations from the database.
-                    Use this when the user asks to list, search, or find quotations.
-                    All parameters are optional.`,
+      description: 'Fetch a list of quotations. Use for list/search/find requests. All parameters optional.',
       parameters: {
         type: 'object',
         properties: {
@@ -45,16 +43,8 @@ export const quotationTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_quotation',
-      description: `Create a new quotation for the current user's own company.
-                    Use this when the user wants to add or create a new quotation.
-                    Look up product details with get_products_list first if the
-                    user references an existing product, so you can pass its
-                    real name/price/HSN code as the line item.
-                    Billing/shipping address is resolved automatically from the
-                    customer's saved address — you don't need to ask for one.
-                    GST (CGST/SGST/IGST) is computed automatically by the
-                    server from the company's and customer's states — do not
-                    ask the user for a tax rate.`,
+      description:
+        "Create a new quotation for the current user's own company. Look up product details with get_products_list first for existing products. Billing/shipping address auto-resolves from the customer's saved address. GST is computed automatically server-side — never ask for a tax rate.",
       parameters: {
         type: 'object',
         properties: {
@@ -122,12 +112,8 @@ export const quotationTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_quotation',
-      description: `Update an existing quotation by its ID.
-                    id is required. All other fields are optional — only pass
-                    what needs to change. If updating items, pass the FULL
-                    new items array (it replaces the existing items, it does
-                    not merge with them) — fetch the current items with
-                    get_quotation_details first if you need to keep some.`,
+      description:
+        'Update a quotation by ID. Only pass fields that need to change. If updating items, pass the FULL replacement array (it replaces, not merges) — fetch current items via get_quotation_details first if some need to be kept.',
       parameters: {
         type: 'object',
         properties: {
@@ -166,8 +152,7 @@ export const quotationTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'delete_quotation',
-      description: `Delete a quotation by its ID.
-                    Always confirm the quotation ID before deleting.`,
+      description: 'Delete a quotation by ID. Always confirm the ID with the user before deleting.',
       parameters: {
         type: 'object',
         properties: {

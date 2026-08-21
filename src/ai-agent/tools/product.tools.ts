@@ -6,9 +6,7 @@ export const productTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_products_list',
-      description: `Fetch a list of products from the database.
-                    Use this when the user asks to list, search, or find products.
-                    All parameters are optional — only pass what the user mentions.`,
+      description: 'Fetch a list of products. Use for list/search/find requests. All parameters optional.',
       parameters: {
         type: 'object',
         properties: {
@@ -30,9 +28,7 @@ export const productTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_product',
-      description: `Create a new product for the current user's own company.
-                    Use this when the user wants to add or create a new product.
-                    name and price are required.`,
+      description: "Create a new product for the current user's own company. name and price are required.",
       parameters: {
         type: 'object',
         properties: {
@@ -60,9 +56,7 @@ export const productTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'delete_product',
-      description: `Delete a product by its ID.
-                    Use this when the user wants to remove or delete a product.
-                    Always confirm the product ID before deleting.`,
+      description: 'Delete a product by ID. Always confirm the ID with the user before deleting.',
       parameters: {
         type: 'object',
         properties: {
@@ -78,9 +72,7 @@ export const productTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_product',
-      description: `Update an existing product's details by its ID.
-                    Use this when the user wants to edit or update a product.
-                    id is required. All other fields are optional — only pass what needs to change.`,
+      description: 'Update a product by ID. id is required; only pass fields that need to change.',
       parameters: {
         type: 'object',
         properties: {

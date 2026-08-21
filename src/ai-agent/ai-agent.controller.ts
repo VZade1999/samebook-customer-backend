@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Delete,
+  Get,
   Post,
   Req,
   Res,
@@ -62,6 +64,46 @@ export class AiAgentController {
       return successRes(res, response.message, response.data);
     } catch (error: unknown) {
       log.error('Unhandled error in AI Agent chat', error);
+      return errorRes(res, error);
+    }
+  }
+
+  @Get('/history')
+  async getHistory(@Req() req: Request, @Res() res: Response) {
+    const log = this.appLogger.forContext('AiAgentController', 'getHistory', {
+      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+    });
+
+    const currentUser = req['user'];
+    if (!currentUser) {
+      throw new UnauthorizedException('User authentication required');
+    }
+
+    try {
+      const history = await this.aiAgentService.getRecentHistory(currentUser);
+      return successRes(res, 'Chat history fetched successfully', history);
+    } catch (error: unknown) {
+      log.error('Unhandled error fetching AI Agent history', error);
+      return errorRes(res, error);
+    }
+  }
+
+  @Delete('/history')
+  async clearHistory(@Req() req: Request, @Res() res: Response) {
+    const log = this.appLogger.forContext('AiAgentController', 'clearHistory', {
+      ip: req.ip ?? req.socket?.remoteAddress ?? 'unknown',
+    });
+
+    const currentUser = req['user'];
+    if (!currentUser) {
+      throw new UnauthorizedException('User authentication required');
+    }
+
+    try {
+      const response = await this.aiAgentService.clearHistory(currentUser);
+      return successRes(res, response.message, response.data);
+    } catch (error: unknown) {
+      log.error('Unhandled error clearing AI Agent history', error);
       return errorRes(res, error);
     }
   }

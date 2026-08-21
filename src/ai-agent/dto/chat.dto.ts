@@ -1,29 +1,4 @@
-import { Type } from 'class-transformer';
-import {
-  ArrayMaxSize,
-  IsArray,
-  IsIn,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-  ValidateNested,
-} from 'class-validator';
-
-// Only 'user' and 'assistant' are ever accepted from the client — a
-// client-supplied 'system' or 'tool' role would let a caller forge a second
-// system prompt or a fake tool result into the conversation the model
-// trusts, so those roles are rejected at the DTO boundary rather than cast
-// through unchecked.
-export class ChatHistoryItemDto {
-  @IsIn(['user', 'assistant'])
-  role: 'user' | 'assistant';
-
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(8000)
-  content: string;
-}
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class ChatDto {
   @IsString()
@@ -35,10 +10,9 @@ export class ChatDto {
   @IsString()
   session_id?: string;
 
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(50)
-  @ValidateNested({ each: true })
-  @Type(() => ChatHistoryItemDto)
-  history?: ChatHistoryItemDto[];
+  // Conversation context is no longer accepted from the client — it's
+  // loaded server-side from ai_agent_messages (see AiAgentService), keyed
+  // to the authenticated user. That also closes off the prompt-injection
+  // surface a client-supplied history previously had (forging a 'system'
+  // or 'tool' role message into the conversation the model trusts).
 }

@@ -9,8 +9,7 @@ export const companyTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_company_details',
-      description: `Get the current user's own company details.
-                    Use this when the user asks about their company's info, GST, address, etc.`,
+      description: "Get the current user's own company details (name, GST, address, etc).",
       parameters: {
         type: 'object',
         properties: {},
@@ -52,9 +51,7 @@ export const companyTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_company',
-      description: `Update the current user's own company details.
-                    Use this when the user wants to edit their company's info.
-                    All fields are optional — only pass what the user wants changed.`,
+      description: "Update the current user's own company details. All fields optional — only pass what changed.",
       parameters: {
         type: 'object',
         properties: {

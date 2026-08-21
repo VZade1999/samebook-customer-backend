@@ -6,9 +6,7 @@ export const customerTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'get_customers_list',
-      description: `Fetch a list of customers from the database.
-                    Use this when the user asks to see, find, search, or list customers.
-                    All parameters are optional — only pass what the user mentions.`,
+      description: 'Fetch a list of customers. Use for see/find/search/list requests. All parameters optional.',
       parameters: {
         type: 'object',
         properties: {
@@ -36,9 +34,7 @@ export const customerTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_customer',
-      description: `Create a new customer in the database.
-                    Use this when the user wants to add or create a new customer.
-                    first_name, last_name, email and phone are required.`,
+      description: 'Create a new customer. first_name, last_name, email and phone are required.',
       parameters: {
         type: 'object',
         properties: {
@@ -64,9 +60,7 @@ export const customerTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'delete_customer',
-      description: `Delete a customer by their ID.
-                    Use this when the user wants to remove or delete a customer.
-                    Always confirm the customer ID before deleting.`,
+      description: 'Delete a customer by ID. Always confirm the ID with the user before deleting.',
       parameters: {
         type: 'object',
         properties: {
@@ -82,9 +76,7 @@ export const customerTools: Groq.Chat.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'update_customer',
-      description: `Update an existing customer's details by their ID.
-                    Use this when the user wants to edit or update a customer.
-                    id is required. All other fields are optional — only pass what needs to change.`,
+      description: 'Update a customer by ID. id is required; only pass fields that need to change.',
       parameters: {
         type: 'object',
         properties: {
