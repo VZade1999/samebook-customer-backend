@@ -398,10 +398,31 @@ export class AiAgentService {
 
       // company_id and user_id are never trusted from the model/args —
       // always the authenticated caller's own identity, same self-service
-      // rule as the company tools.
+      // rule as the company tools. The tool schema deliberately doesn't ask
+      // the model for a billing/shipping address (too much friction for a
+      // chat flow), so when neither is supplied we fall back to the
+      // customer's primary saved address here.
       case 'create_quotation': {
+        let billingAddressId = args.billing_address_id;
+        let shippingAddressId = args.shipping_address_id;
+
+        if (!billingAddressId || !shippingAddressId) {
+          const customerResult = await this.customerService.getCustomerDetails(
+            args.customer_id,
+            currentUser,
+          );
+          const addresses = (customerResult.data as any)?.addresses ?? [];
+          const defaultAddress =
+            addresses.find((a: any) => a.is_primary) ?? addresses[0];
+
+          billingAddressId = billingAddressId ?? defaultAddress?.id;
+          shippingAddressId = shippingAddressId ?? defaultAddress?.id;
+        }
+
         const result = await this.quotationService.createQuotation({
           ...args,
+          billing_address_id: billingAddressId,
+          shipping_address_id: shippingAddressId,
           company_id: currentUser.company_id,
           user_id: currentUser.user_id,
         });
