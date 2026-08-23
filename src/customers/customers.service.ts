@@ -603,6 +603,14 @@ export class CustomerService {
                 as: 'contacts',
 
                 required: false,
+
+                where: { is_active: 1 },
+
+                // Two hasMany includes joined in one query without this
+                // produce a SQL fan-out (each contact row duplicated once
+                // per address row, and vice versa) — separate:true runs
+                // each association as its own query instead.
+                separate: true,
               },
 
               {
@@ -612,6 +620,10 @@ export class CustomerService {
                 as: 'addresses',
 
                 required: false,
+
+                where: { is_active: 1 },
+
+                separate: true,
               },
             ],
           },

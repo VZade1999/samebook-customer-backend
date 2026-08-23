@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import  cors from 'cors';
 import { Logger } from '@nestjs/common';
 import  cookieParser from 'cookie-parser';
+import { json } from 'express';
 import { ConstantsService } from './Util/constants.service';
 import { AuthGuard } from './middlewares/auth.guard';
 
@@ -12,6 +13,12 @@ const PORT = process.env.PORT || 3030;
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Default body-parser limit (100kb) is too small for a base64-encoded
+  // document photo/PDF (the AI agent's document-upload feature) — raised
+  // globally rather than per-route since Nest doesn't cleanly support a
+  // per-route override on top of its default body parsing.
+  app.use(json({ limit: '15mb' }));
 
   app.use(
     cors({

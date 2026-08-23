@@ -44,15 +44,21 @@ export const quotationTools: Groq.Chat.ChatCompletionTool[] = [
     function: {
       name: 'create_quotation',
       description:
-        "Create a new quotation for the current user's own company. Look up product details with get_products_list first for existing products. Billing/shipping address auto-resolves from the customer's saved address. GST is computed automatically server-side — never ask for a tax rate.",
+        "Create a new quotation for the current user's own company. Look up product details with get_products_list first for existing products. GST is computed automatically server-side — never ask for a tax rate. " +
+        "Contact person, billing/shipping address, and bank account for payment details all auto-resolve when the customer/company only has one option (or one marked default/primary) — if this tool's response instead reports multiple options to choose from, ask the user which one and call it again with contact_person_id/billing_address_id/shipping_address_id/bank_account_id set, rather than guessing.",
       parameters: {
         type: 'object',
         properties: {
-          customer_id:    { type: 'number', description: 'Customer ID' },
-          items:          { type: 'array', description: 'Line items on the quotation', items: quotationItemSchema },
-          discount_amount:{ type: 'number', description: 'Flat discount amount off the subtotal (optional)' },
-          transport_charges: { type: 'number', description: 'Transport/shipping charges to add (optional)' },
-          notes:          { type: 'string', description: 'Additional notes (optional)' },
+          customer_id:        { type: 'number', description: 'Customer ID' },
+          items:              { type: 'array', description: 'Line items on the quotation', items: quotationItemSchema },
+          discount_amount:    { type: 'number', description: 'Flat discount amount off the subtotal (optional)' },
+          transport_charges:  { type: 'number', description: 'Transport/shipping charges to add (optional)' },
+          notes:              { type: 'string', description: 'Additional notes (optional)' },
+          quotation_date:     { type: 'string', description: 'Quotation date, YYYY-MM-DD (optional — defaults to today)' },
+          contact_person_id:  { type: 'number', description: "The customer's contact person ID — only pass this if the user specified one or a prior call asked you to choose" },
+          billing_address_id: { type: 'number', description: 'Billing address ID — only pass this if the user specified one or a prior call asked you to choose' },
+          shipping_address_id:{ type: 'number', description: 'Shipping address ID — only pass this if the user specified one or a prior call asked you to choose' },
+          bank_account_id:    { type: 'number', description: "The company's bank account ID to show as payment details — only pass this if the user specified one or a prior call asked you to choose" },
         },
         required: ['customer_id', 'items'],
       },
