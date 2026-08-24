@@ -1,5 +1,14 @@
 import * as Tesseract from 'tesseract.js';
-import { PDFParse } from 'pdf-parse';
+// pdf-parse v2 pulls in a pdfjs-dist-based renderer that references
+// browser-only globals (DOMMatrix/ImageData/Path2D) via an optional
+// @napi-rs/canvas package. Without that native package installed, it
+// throws an uncaught ReferenceError at import time in Node — which, on a
+// serverless platform where the whole app is one Lambda, crashes every
+// route (not just document upload) on cold start. v1.x is a lightweight,
+// pure-JS text-extraction wrapper with no rendering/canvas dependency at
+// all, which is all this actually needs.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const pdfParse = require('pdf-parse');
 
 export class DocumentExtractionError extends Error {}
 
@@ -18,16 +27,13 @@ export async function extractTextFromDocument(
 
   if (mimeType === 'application/pdf') {
     let text: string;
-    const parser = new PDFParse({ data: buffer });
     try {
-      const result = await parser.getText();
+      const result = await pdfParse(buffer);
       text = (result.text || '').trim();
     } catch (err: any) {
       throw new DocumentExtractionError(
         `Could not read this PDF: ${err?.message || 'unknown error'}`,
       );
-    } finally {
-      await parser.destroy();
     }
 
     if (text.length < MIN_PDF_TEXT_LENGTH) {
