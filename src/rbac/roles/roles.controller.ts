@@ -26,8 +26,7 @@ export class RolesController {
   ) {}
 
   @Get('')
-    @UseGuards(AuthGuard)
-//   @RequirePermissions('roles.view')
+  @RequirePermissions('roles.view')
   async listRoles(
     @Req() req: any,
     @Query('page', ParseIntPipe) page = 1,
@@ -35,7 +34,6 @@ export class RolesController {
     @Query('search') search?: string,
   ) {
     const companyId = req.user?.company_id;
-     console.log('listRoles called with companyId:', companyId, 'page:', page, 'limit:', limit, 'search:', search);
     return this.rolesService.listRoles(
       companyId,
       page,
@@ -44,7 +42,6 @@ export class RolesController {
     );
   }
 
-    @UseGuards(AuthGuard)
   @Get('all')
   @RequirePermissions('roles.view')
   async getRoles(@Req() req: any) {
@@ -53,7 +50,6 @@ export class RolesController {
     return this.rolesService.getRoles(companyId);
   }
 
-    @UseGuards(AuthGuard)
   @Get(':id')
   @RequirePermissions('roles.view')
   async getRoleById(
@@ -68,9 +64,8 @@ export class RolesController {
     );
   }
 
-    @UseGuards(AuthGuard)
   @Post('create')
-//   @RequirePermissions('roles.create')
+  @RequirePermissions('roles.create')
   async createRole(
     @Req() req: any,
     @Body() payload: any,
@@ -83,9 +78,8 @@ export class RolesController {
     );
   }
 
-    @UseGuards(AuthGuard)
   @Put(':id')
-//   @RequirePermissions('roles.edit')
+  @RequirePermissions('roles.edit')
   async updateRole(
     @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
@@ -100,9 +94,8 @@ export class RolesController {
     );
   }
 
-    @UseGuards(AuthGuard)
   @Delete(':id')
-//   @RequirePermissions('roles.delete')
+  @RequirePermissions('roles.delete')
   async deleteRole(
     @Req() req: any,
     @Param('id', ParseIntPipe) id: number,

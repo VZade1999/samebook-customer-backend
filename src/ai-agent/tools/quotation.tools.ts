@@ -128,7 +128,6 @@ export const quotationTools: Groq.Chat.ChatCompletionTool[] = [
           discount_amount: { type: 'number', description: 'New flat discount amount off the subtotal' },
           transport_charges: { type: 'number', description: 'New transport/shipping charges' },
           notes:           { type: 'string', description: 'New notes' },
-          status:          { type: 'string', description: 'New status' },
         },
         required: ['id'],
       },

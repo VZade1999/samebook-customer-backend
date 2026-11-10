@@ -6,11 +6,15 @@ import {
   Body,
   ParseIntPipe,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { AuthGuard } from '../../middlewares/auth.guard';
 import { RolePermissionsService } from './role-permissions.service';
 
+@UseGuards(AuthGuard, PermissionsGuard)
 @Controller('roles')
 export class RolePermissionsController {
   constructor(

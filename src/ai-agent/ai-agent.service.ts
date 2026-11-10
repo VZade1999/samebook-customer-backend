@@ -8,7 +8,7 @@ import { QuotationService } from 'src/quotations/quotations.service';
 import Groq from 'groq-sdk';
 import type { ChatCompletionCreateParamsNonStreaming } from 'groq-sdk/resources/chat/completions';
 import Cerebras from '@cerebras/cerebras_cloud_sdk';
-import { allTools } from './tools';
+import { getPermittedTools, hasToolPermission, pickDeclaredToolArgs } from './tools/permissions';
 import { SYSTEM_PROMPT } from './ai-agent.prompt';
 import { UploadDocumentDto } from './dto/uploadDocument.dto';
 import { DocumentExtractionError, extractTextFromDocument } from './document-extraction.util';
@@ -673,7 +673,8 @@ export class AiAgentService {
         const result = await this.quotationService.updateQuotation(
           id,
           currentUser.company_id,
-          updateData,
+          // changed_by on the version snapshot — always the caller, never the model.
+          { ...updateData, user_id: currentUser.user_id },
         );
         return JSON.stringify({
           success: result.success,
@@ -721,6 +722,21 @@ export class AiAgentService {
     currentUser: CurrentUser,
   ): Promise<string> {
     const log = this.appLogger.forContext('AiAgentService', 'executeTool', { tool: name });
+
+    // Defense in depth: the model only sees permitted tools, but it could
+    // still hallucinate (or be steered into) a tool name it wasn't offered.
+    if (!hasToolPermission(name, currentUser.permissions)) {
+      log.warn(`Tool call rejected — missing permission for ${name}`);
+      return JSON.stringify({
+        success: false,
+        message: `You do not have permission to use ${name}.`,
+        data: null,
+      });
+    }
+
+    // Only fields declared in the tool's schema reach the services;
+    // tenant/user identity always comes from currentUser.
+    args = pickDeclaredToolArgs(name, args);
     log.info(`Executing tool: ${name}`, { args });
 
     try {
@@ -748,7 +764,7 @@ export class AiAgentService {
 
   async getRecentHistory(currentUser: CurrentUser) {
     const rows = await this.AiAgentMessages.findAll({
-      where: { user_id: currentUser.user_id },
+      where: { user_id: currentUser.user_id, company_id: currentUser.company_id },
       order: [['created_at', 'DESC']],
       limit: HISTORY_LOAD_LIMIT,
     });
@@ -772,7 +788,9 @@ export class AiAgentService {
   }
 
   async clearHistory(currentUser: CurrentUser) {
-    await this.AiAgentMessages.destroy({ where: { user_id: currentUser.user_id } });
+    await this.AiAgentMessages.destroy({
+      where: { user_id: currentUser.user_id, company_id: currentUser.company_id },
+    });
     return { success: true, message: 'Chat history cleared', data: null };
   }
 
@@ -790,6 +808,14 @@ export class AiAgentService {
 
     try {
       const history = await this.getRecentHistory(currentUser);
+
+      // Only tools this user is permitted to call are offered to the model.
+      // Gemini/Groq reject an empty tools array, so omit it entirely then.
+      const permittedTools = getPermittedTools(currentUser.permissions);
+      const toolParams =
+        permittedTools.length > 0
+          ? { tools: permittedTools, tool_choice: 'auto' as const }
+          : {};
 
       // ── Build message history ────────────────────────────────────────────
       const messages: Groq.Chat.ChatCompletionMessageParam[] = [
@@ -812,8 +838,7 @@ export class AiAgentService {
         {
           model: AI_MODEL,
           messages,
-          tools: allTools,
-          tool_choice: 'auto',
+          ...toolParams,
           max_tokens: 1024,
           temperature: 0.7,
         },
@@ -841,11 +866,27 @@ export class AiAgentService {
 
         for (const toolCall of responseMessage.tool_calls) {
           const toolName = toolCall.function.name;
-          const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+          // Malformed arguments from the model become a tool error fed back
+          // to it, rather than failing the whole chat request.
+          let toolResult: string;
+          let toolArgs: any;
+          try {
+            toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+          } catch {
+            toolArgs = undefined;
+          }
 
-          log.info(`Running tool: ${toolName}`, { args: toolArgs });
-
-          const toolResult = await this.executeTool(toolName, toolArgs, currentUser);
+          if (toolArgs === undefined) {
+            log.warn(`Malformed arguments for tool: ${toolName}`);
+            toolResult = JSON.stringify({
+              success: false,
+              message: `Invalid JSON arguments for ${toolName}. Please retry with valid JSON.`,
+              data: null,
+            });
+          } else {
+            log.info(`Running tool: ${toolName}`);
+            toolResult = await this.executeTool(toolName, toolArgs, currentUser);
+          }
 
           messages.push({
             role: 'tool',
@@ -859,8 +900,7 @@ export class AiAgentService {
           {
             model: AI_MODEL,
             messages,
-            tools: allTools,
-            tool_choice: 'auto',
+            ...toolParams,
             max_tokens: 1024,
             temperature: 0.7,
           },

@@ -13,14 +13,16 @@ import {
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { AuthGuard } from 'src/middlewares/auth.guard';
 
+@UseGuards(AuthGuard, PermissionsGuard)
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  @UseGuards(AuthGuard)
   @Get('list')
+  @RequirePermissions('users.view')
   async listUsers(
     @Req() req: any,
     @Query('page', ParseIntPipe) page: number = 1,
@@ -31,21 +33,20 @@ export class UsersController {
     return this.usersService.listUsers(companyId, page, limit, search?.trim());
   }
 
-  @UseGuards(AuthGuard)
   @Get('roles')
+  @RequirePermissions('users.view')
   async getRoles(@Req() req: any) {
     const companyId = req.user?.company_id;
     return this.usersService.getRoles(companyId);
   }
 
-  @UseGuards(AuthGuard)
   @Get(':id')
-  async getUserById(@Req() req: any, @Param('id') id: number) {
+  @RequirePermissions('users.view')
+  async getUserById(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     const companyId = req.user?.company_id;
     return this.usersService.getUserById(companyId, id);
   }
 
-  @UseGuards(AuthGuard)
   @Post('create')
   @RequirePermissions('users.create')
   async createUser(@Req() req: any, @Body() payload: any) {
@@ -53,20 +54,20 @@ export class UsersController {
     return this.usersService.createUser(companyId, payload);
   }
 
-  @UseGuards(AuthGuard)
   @Put(':id')
+  @RequirePermissions('users.edit')
   async updateUser(
     @Req() req: any,
-    @Param('id') id: number,
+    @Param('id', ParseIntPipe) id: number,
     @Body() payload: any,
   ) {
     const companyId = req.user?.company_id;
     return this.usersService.updateUser(companyId, id, payload);
   }
 
-  @UseGuards(AuthGuard)
   @Delete(':id')
-  async deleteUser(@Req() req: any, @Param('id') id: number) {
+  @RequirePermissions('users.delete')
+  async deleteUser(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
     const companyId = req.user?.company_id;
     return this.usersService.softDeleteUser(companyId, id);
   }

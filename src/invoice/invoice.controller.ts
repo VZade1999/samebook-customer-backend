@@ -9,6 +9,7 @@ import {
   Req,
   Res,
   UseGuards,
+  ValidationPipe,
 } from '@nestjs/common';
 
 import { Request, Response } from 'express';
@@ -64,13 +65,14 @@ async getInvoiceDetails(
       ParseIntPipe,
     )
     quotationId: number,
-    @Body() body:GenrateInvoice,
+    @Body(new ValidationPipe({ transform: true })) body:GenrateInvoice,
     @GetUser() currentUser: CurrentUser,
   ) {
     return this.invoiceService.generateInvoice(
     quotationId,
     body,
     currentUser.user_id,
+    currentUser.company_id,
   );
   }
 
@@ -80,7 +82,7 @@ async addPayment(
   @Param('id', ParseIntPipe)
   invoiceId: number,
 
-  @Body()
+  @Body(new ValidationPipe({ transform: true }))
   payload: AddPaymentDto,
 
   @GetUser()
@@ -90,6 +92,7 @@ async addPayment(
     invoiceId,
     payload,
     currentUser.company_id,
+    currentUser.user_id,
   );
 }   
 

@@ -1,6 +1,7 @@
 
 import {
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -168,6 +169,17 @@ export class RolesService {
         );
       }
 
+      // System roles are shared across all tenants and must not be
+      // renamed/edited by any single company.
+      if (
+        Number(role.is_system) === 1 ||
+        Number(role.company_id) !== Number(companyId)
+      ) {
+        throw new ForbiddenException(
+          'System roles cannot be modified',
+        );
+      }
+
       await role.update({
         name:
           payload.name ?? role.name,
@@ -219,6 +231,12 @@ export class RolesService {
       if (!role) {
         throw new NotFoundException(
           'Role not found',
+        );
+      }
+
+      if (Number(role.is_system) === 1) {
+        throw new ForbiddenException(
+          'System roles cannot be deleted',
         );
       }
 

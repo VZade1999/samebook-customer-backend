@@ -6,6 +6,7 @@ import {
 
 import { AppLogger } from '../../common/logger/logger.service';
 import { LogContext } from '../../common/logger/logger.context';
+import { assertAssignableRoleIds } from './role-scope.util';
 
 @Injectable()
 export class UserRolesService {
@@ -109,15 +110,24 @@ export class UserRolesService {
         );
       }
 
+      // Reject (rather than silently drop) any role outside the caller's
+      // company / shared system roles before touching existing assignments.
+      const validRoleIds =
+        await assertAssignableRoleIds(
+          this.db,
+          companyId,
+          roleIds,
+        );
+
       await this.db.db.user_roles.destroy({
         where: {
           user_id: userId,
         },
       });
 
-      if (roleIds.length) {
+      if (validRoleIds.length) {
         await this.db.db.user_roles.bulkCreate(
-          roleIds.map(
+          validRoleIds.map(
             (roleId: number) => ({
               user_id: userId,
               role_id: roleId,

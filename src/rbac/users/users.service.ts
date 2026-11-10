@@ -1,7 +1,13 @@
-import { ConflictException, Injectable, Inject } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Inject,
+  NotFoundException,
+} from '@nestjs/common';
 import { Op } from 'sequelize';
 import { AppLogger } from '../../common/logger/logger.service';
 import { LogContext } from '../../common/logger/logger.context';
+import { assertAssignableRoleIds } from './role-scope.util';
 
 @Injectable()
 export class UsersService {
@@ -54,7 +60,6 @@ export class UsersService {
         offset,
         order: [['created_at', 'DESC']],
       });
-console.log('Fetched users:', rows);
       return {
         users: rows.map((user: any) => ({
           id: user.id,
@@ -99,6 +104,12 @@ console.log('Fetched users:', rows);
         throw new ConflictException('A user with this email already exists.');
       }
 
+      // Validate roles before creating the user so a bad role_ids payload
+      // does not leave a half-created user behind.
+      const roleIds = payload.role_ids
+        ? await assertAssignableRoleIds(this.db, companyId, payload.role_ids)
+        : [];
+
       const hashedPassword = await bcrypt.hash(payload.password, 10);
 
       const user = await this.db.db.users.create({
@@ -111,9 +122,9 @@ console.log('Fetched users:', rows);
         is_active: 1,
       });
 
-      if (payload.role_ids && payload.role_ids.length) {
+      if (roleIds.length) {
         await this.db.db.user_roles.bulkCreate(
-          payload.role_ids.map((roleId: number) => ({
+          roleIds.map((roleId: number) => ({
             user_id: user.id,
             role_id: roleId,
           })),
@@ -151,8 +162,16 @@ console.log('Fetched users:', rows);
       });
 
       if (!user) {
-        throw new Error('User not found');
+        throw new NotFoundException('User not found');
       }
+
+      // Validate roles up front so nothing is written if any role is invalid.
+      // Any provided role_ids (even a malformed non-array) is validated and
+      // rejected with 400, consistent with createUser/assignRoles.
+      const roleIds =
+        payload.role_ids !== undefined && payload.role_ids !== null
+          ? await assertAssignableRoleIds(this.db, companyId, payload.role_ids)
+          : null;
 
       if (payload.email && payload.email !== user.email) {
         const existingUser = await this.db.db.users.findOne({
@@ -186,16 +205,16 @@ console.log('Fetched users:', rows);
 
       await user.update(updateData);
 
-      if (payload.role_ids && Array.isArray(payload.role_ids)) {
+      if (roleIds) {
         await this.db.db.user_roles.destroy({
           where: {
             user_id: userId,
           },
         });
 
-        if (payload.role_ids.length) {
+        if (roleIds.length) {
           await this.db.db.user_roles.bulkCreate(
-            payload.role_ids.map((roleId: number) => ({
+            roleIds.map((roleId: number) => ({
               user_id: userId,
               role_id: roleId,
             })),
@@ -282,7 +301,7 @@ console.log('Fetched users:', rows);
       });
 
       if (!user) {
-        throw new Error('User not found');
+        throw new NotFoundException('User not found');
       }
 
       await user.update({ is_active: 0 });
@@ -330,13 +349,14 @@ console.log('Fetched users:', rows);
         include: [
           {
             model: this.db.db.user_roles,
-            include: [{ model: this.db.db.roles }],
+            as: 'user_roles',
+            include: [{ model: this.db.db.roles, as: 'role' }],
           },
         ],
       });
 
       if (!user) {
-        throw new Error('User not found');
+        throw new NotFoundException('User not found');
       }
 
       return {

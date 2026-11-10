@@ -14,7 +14,8 @@ import { QuotationItemDto } from './quotationItems.dto';
 
 
 export class CreateQuotationDto {
-  @IsNotEmpty()
+  // Ignored if sent: the controller overwrites it from the auth token.
+  @IsOptional()
   @IsNumber()
   @Type(() => Number)
   company_id!: number;
@@ -39,7 +40,8 @@ shipping_address_id?: number;
   @Type(() => Number)
   customer_id!: number;
 
-  @IsNotEmpty()
+  // Ignored if sent: the controller overwrites it from the auth token.
+  @IsOptional()
   @IsNumber()
   @Type(() => Number)
   user_id!: number;

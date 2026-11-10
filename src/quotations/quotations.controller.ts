@@ -139,6 +139,10 @@ export class QuotationController {
     );
 
     try {
+      // Never trust tenant/actor identity from the body.
+      body.company_id = (req as any).user.company_id;
+      body.user_id = (req as any).user.user_id;
+
       const response = await this.quotationService.createQuotation(body);
 
       if (!response.success) {
@@ -178,6 +182,9 @@ export class QuotationController {
     );
 
     try {
+      // Actor identity comes from the auth token, never from the body.
+      body.user_id = (req as any).user.user_id;
+
       const response = await this.quotationService.updateQuotation(
         id,
         (req as any).user.company_id,
@@ -275,13 +282,12 @@ export class QuotationController {
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
-    @Body('user_id') user_id?: number,
   ) {
     try {
       const response = await this.quotationService.sendQuotation(
         id,
         (req as any).user.company_id,
-        user_id,
+        (req as any).user.user_id,
       );
 
       if (!response.success) {
@@ -299,10 +305,13 @@ export class QuotationController {
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
-    @Body('user_id') user_id?: number,
   ) {
     try {
-      const response = await this.quotationService.approveQuotation(id, user_id);
+      const response = await this.quotationService.approveQuotation(
+        id,
+        (req as any).user.company_id,
+        (req as any).user.user_id,
+      );
 
       if (!response.success) {
         return failedRes(res, response.message);
@@ -321,13 +330,12 @@ export class QuotationController {
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
-    @Body('user_id') user_id: number,
   ) {
     try {
       const response = await this.quotationService.deleteQuotation(
         id,
         (req as any).user.company_id,
-        user_id,
+        (req as any).user.user_id,
       );
 
       if (!response.success) {

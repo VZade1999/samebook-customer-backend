@@ -1,8 +1,11 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   Injectable,
   Inject,
   NotFoundException,
 } from '@nestjs/common';
+import { Op } from 'sequelize';
 
 import { AppLogger } from 'src/common/logger/logger.service';
 import { LogContext } from 'src/common/logger/logger.context';
@@ -33,6 +36,10 @@ export class RolePermissionsService {
         await this.db.db.roles.findOne({
           where: {
             id: roleId,
+            [Op.or]: [
+              { company_id: companyId },
+              { is_system: 1 },
+            ],
           },
           include: [
             {
@@ -97,6 +104,10 @@ export class RolePermissionsService {
         await this.db.db.roles.findOne({
           where: {
             id: roleId,
+            [Op.or]: [
+              { company_id: companyId },
+              { is_system: 1 },
+            ],
           },
         });
 
@@ -106,15 +117,64 @@ export class RolePermissionsService {
         );
       }
 
+      // System roles are shared by every tenant, so no tenant may change
+      // their permissions. Also require ownership explicitly.
+      if (
+        Number(role.is_system) === 1 ||
+        Number(role.company_id) !== Number(companyId)
+      ) {
+        throw new ForbiddenException(
+          'System roles cannot be modified',
+        );
+      }
+
+      if (!Array.isArray(permissionIds)) {
+        throw new BadRequestException(
+          'permission_ids must be an array',
+        );
+      }
+
+      const ids = permissionIds.map(
+        (id: any) => Number(id),
+      );
+
+      if (
+        ids.some(
+          (id) =>
+            !Number.isInteger(id) || id <= 0,
+        )
+      ) {
+        throw new BadRequestException(
+          'permission_ids must contain positive integers',
+        );
+      }
+
+      const uniqueIds = [...new Set(ids)];
+
+      if (uniqueIds.length) {
+        const existingCount =
+          await this.db.db.permission.count({
+            where: {
+              id: { [Op.in]: uniqueIds },
+            },
+          });
+
+        if (existingCount !== uniqueIds.length) {
+          throw new BadRequestException(
+            'One or more permissions are invalid',
+          );
+        }
+      }
+
       await this.db.db.role_permissions.destroy({
         where: {
           role_id: roleId,
         },
       });
 
-      if (permissionIds.length) {
+      if (uniqueIds.length) {
         await this.db.db.role_permissions.bulkCreate(
-          permissionIds.map(
+          uniqueIds.map(
             (permissionId: number) => ({
               role_id: roleId,
               permission_id: permissionId,

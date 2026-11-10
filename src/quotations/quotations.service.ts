@@ -658,6 +658,62 @@ export class QuotationService {
     );
   }
 
+  // Tenant guard: loads a customer only if it belongs to the given company,
+  // together with its contacts/addresses so referenced ids can be checked.
+  private async findCompanyCustomer(
+    customerId: number | undefined | null,
+    companyId: number | undefined | null,
+    transaction?: Transaction,
+  ): Promise<customers | null> {
+    if (customerId == null || companyId == null) return null;
+    return this.Customers.findOne({
+      where: { id: customerId, company_id: companyId },
+      include: [
+        {
+          model: this.CustomerContacts,
+          as: 'contacts',
+        },
+        {
+          model: this.CustomerAddresses,
+          as: 'addresses',
+        },
+      ],
+      transaction,
+    });
+  }
+
+  // True when every non-null contact/address id belongs to the given customer.
+  private customerOwnsRefs(
+    customer: customers,
+    contactId?: number | null,
+    billingAddressId?: number | null,
+    shippingAddressId?: number | null,
+  ): boolean {
+    const owns = (list: any[] | undefined, refId?: number | null) =>
+      refId == null ||
+      (list || []).some((row: any) => Number(row.id) === Number(refId));
+    return (
+      owns((customer as any).contacts, contactId) &&
+      owns((customer as any).addresses, billingAddressId) &&
+      owns((customer as any).addresses, shippingAddressId)
+    );
+  }
+
+  // Tenant guard for issuing_location_id taken from the request body.
+  private async isCompanyLocation(
+    locationId: number | undefined | null,
+    companyId: number,
+    transaction?: Transaction,
+  ): Promise<boolean> {
+    if (locationId == null) return true;
+    if (!this.CompanyLocations) return false;
+    const location = await this.CompanyLocations.findOne({
+      where: { id: locationId, company_id: companyId },
+      transaction,
+    });
+    return Boolean(location);
+  }
+
   private async fetchQuotationById(
     id: number,
     transaction?: Transaction,
@@ -961,18 +1017,12 @@ export class QuotationService {
     const transaction = await this.dbProvider.sequelize.transaction();
 
     try {
-      const customer = await this.Customers.findByPk(data.customer_id, {
-        include: [
-          {
-            model: this.CustomerContacts,
-            as: 'contacts',
-          },
-          {
-            model: this.CustomerAddresses,
-            as: 'addresses',
-          },
-        ],
-      });
+      // Scoped to the caller's company: a customer of another company is
+      // reported exactly like a non-existent one.
+      const customer = await this.findCompanyCustomer(
+        data.customer_id,
+        data.company_id,
+      );
 
       if (!customer) {
         await transaction.rollback();
@@ -982,16 +1032,37 @@ export class QuotationService {
           data: null,
         };
       }
+
+      if (
+        !this.customerOwnsRefs(
+          customer,
+          data.contact_person_id,
+          data.billing_address_id,
+          data.shipping_address_id,
+        ) ||
+        !(await this.isCompanyLocation(
+          data.issuing_location_id,
+          data.company_id,
+        ))
+      ) {
+        await transaction.rollback();
+        return {
+          success: false,
+          message: 'Invalid contact, address or location for this customer',
+          data: null,
+        };
+      }
+
       const selectedContact = (customer as any).contacts.find(
-        (c) => c.id === data.contact_person_id,
+        (c) => Number(c.id) === Number(data.contact_person_id),
       );
 
       const billingAddress = (customer as any).addresses.find(
-        (a) => a.id === data.billing_address_id,
+        (a) => Number(a.id) === Number(data.billing_address_id),
       );
 
       const shippingAddress = (customer as any).addresses.find(
-        (a) => a.id === data.shipping_address_id,
+        (a) => Number(a.id) === Number(data.shipping_address_id),
       );
 
       data.customer_name = customer.display_name;
@@ -1109,8 +1180,8 @@ export class QuotationService {
     });
     log.info('Updating quotation');
 
-    const transaction = await this.dbProvider.sequelize.transaction();
-
+    // Validate before opening the transaction — returning early with an open
+    // transaction leaks a pooled DB connection.
     if (
       data.validity_date &&
       new Date(data.validity_date) < new Date(new Date().setHours(0, 0, 0, 0))
@@ -1121,6 +1192,8 @@ export class QuotationService {
         data: null,
       };
     }
+
+    const transaction = await this.dbProvider.sequelize.transaction();
 
     try {
       const quotation = await this.Quotations.findByPk(id, {
@@ -1140,6 +1213,52 @@ export class QuotationService {
         return {
           success: false,
           message: 'Quotation not found',
+          data: null,
+        };
+      }
+
+      // Tenant guard: any customer/contact/address/location id supplied in
+      // the body must belong to this company (and to the target customer).
+      if (
+        data.customer_id != null ||
+        data.contact_person_id != null ||
+        data.billing_address_id != null ||
+        data.shipping_address_id != null
+      ) {
+        const refCustomer = await this.findCompanyCustomer(
+          data.customer_id ?? quotation.customer_id,
+          companyId,
+          transaction,
+        );
+        if (
+          !refCustomer ||
+          !this.customerOwnsRefs(
+            refCustomer,
+            data.contact_person_id,
+            data.billing_address_id,
+            data.shipping_address_id,
+          )
+        ) {
+          await transaction.rollback();
+          return {
+            success: false,
+            message: 'Invalid customer, contact or address',
+            data: null,
+          };
+        }
+      }
+
+      if (
+        !(await this.isCompanyLocation(
+          data.issuing_location_id,
+          companyId,
+          transaction,
+        ))
+      ) {
+        await transaction.rollback();
+        return {
+          success: false,
+          message: 'Invalid issuing location',
           data: null,
         };
       }
@@ -1527,6 +1646,7 @@ export class QuotationService {
 
   async approveQuotation(
     id: number,
+    companyId: number,
     userId?: number,
   ): Promise<IServiceResponse> {
     const log = this.getLog('approveQuotation', { quotationId: id });
@@ -1539,13 +1659,33 @@ export class QuotationService {
         transaction,
       });
 
-      if (!quotation) {
+      if (!quotation || quotation.company_id !== companyId) {
         await transaction.rollback();
         log.warn('Quotation not found', { quotationId: id });
 
         return {
           success: false,
           message: 'Quotation not found',
+          data: null,
+        };
+      }
+
+      // Deleted, already-approved or invoiced quotations must not be
+      // (re-)approved — otherwise a soft-deleted quotation could be revived
+      // and invoiced.
+      if (
+        ['DELETED', 'APPROVED', 'INVOICED'].includes(quotation.status ?? '') ||
+        quotation.has_invoice
+      ) {
+        await transaction.rollback();
+        log.warn('Quotation cannot be approved in its current status', {
+          quotationId: id,
+          status: quotation.status,
+        });
+
+        return {
+          success: false,
+          message: `Quotation cannot be approved in status ${quotation.status}`,
           data: null,
         };
       }

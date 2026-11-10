@@ -103,9 +103,6 @@ export class QuotationMapper {
         validity_date: new Date(data.validity_date),
       }),
 
-      ...(data.status !== undefined && {
-        status: data.status,
-      }),
 
       ...(data.notes !== undefined && {
         notes: data.notes,

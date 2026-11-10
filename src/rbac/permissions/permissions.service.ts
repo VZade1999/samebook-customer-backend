@@ -53,7 +53,6 @@ export class PermissionsService {
           },
         ];
       }
-console.log('permissions')
       const { count, rows } =
         await this.db.db.permission.findAndCountAll({
           where,
@@ -61,7 +60,6 @@ console.log('permissions')
           offset,
           order: [['name', 'ASC']],
         });
-console.log(rows,'permissions')
       return {
         permissions: rows.map(
           (permission: any) => ({

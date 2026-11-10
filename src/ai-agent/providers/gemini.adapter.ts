@@ -109,7 +109,9 @@ export async function callGemini(
       contents,
       config: {
         systemInstruction,
-        tools: toGeminiTools(tools),
+        // Gemini rejects an empty functionDeclarations list, so omit tools
+        // entirely for users who aren't permitted any.
+        ...(tools?.length ? { tools: toGeminiTools(tools) } : {}),
         maxOutputTokens: 1024,
         temperature: 0.7,
         httpOptions: { timeout: GEMINI_TIMEOUT_MS },

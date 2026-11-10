@@ -44,9 +44,8 @@ shipping_address_id?: number;
   @IsDateString()
   validity_date?: string;
 
-  @IsOptional()
-  @IsString()
-  status?: string;
+  // `status` is intentionally NOT accepted here: status changes must go
+  // through the send / approve / delete endpoints so their checks apply.
 
   @IsOptional()
   @IsString()

@@ -73,10 +73,12 @@ export class InvoiceService {
     quotationId: number,
     body: GenrateInvoice,
     generatedBy: number,
+    companyId: number,
   ) {
     const ctx = new LogContext('InvoiceService', 'generateInvoice', {
       quotationId,
       generatedBy,
+      companyId,
     });
 
     const transaction = await this.db.sequelize.transaction();
@@ -85,6 +87,7 @@ export class InvoiceService {
       const quotation = await this.db.db.quotations.findOne({
         where: {
           id: quotationId,
+          company_id: companyId,
           status: 'APPROVED',
         },
         include: [
@@ -99,6 +102,7 @@ export class InvoiceService {
         throw new BadRequestException('Approved quotation not found');
       }
       if (!this.validateAddress(quotation.billing_address_snapshot)) {
+        await transaction.rollback();
         return {
           success: true,
           message:
@@ -108,6 +112,7 @@ export class InvoiceService {
       }
 
       if (!this.validateAddress(quotation.shipping_address_snapshot)) {
+        await transaction.rollback();
         return {
           success: true,
           message:
@@ -439,7 +444,12 @@ async listInvoices(query: any, companyId: number) {
     }
   }
 
-  async addPayment(invoiceId: number, payload: any, companyId: number) {
+  async addPayment(
+    invoiceId: number,
+    payload: any,
+    companyId: number,
+    receivedBy: number,
+  ) {
     const ctx = new LogContext('InvoiceService', 'addPayment', {
       invoiceId,
       companyId,
@@ -475,6 +485,7 @@ async listInvoices(query: any, companyId: number) {
       const newTotalPaid = alreadyPaid + paymentAmount;
 
       if (newTotalPaid > invoiceTotal) {
+        await transaction.rollback();
         return {
           success: true,
           message: `Payment exceeds invoice amount. Remaining balance is ₹${invoiceTotal - alreadyPaid}`,
@@ -496,7 +507,7 @@ async listInvoices(query: any, companyId: number) {
 
           remarks: payload.notes,
 
-          received_by: payload.received_by,
+          received_by: receivedBy,
         },
         {
           transaction,
@@ -533,7 +544,7 @@ async listInvoices(query: any, companyId: number) {
 
             action: 'INVOICE_PARTIAL_PAID',
 
-            changed_by: payload.received_by,
+            changed_by: receivedBy,
 
             new_value: {
               payment_amount: paymentAmount,
@@ -556,7 +567,7 @@ async listInvoices(query: any, companyId: number) {
 
             action: 'INVOICE_PAID',
 
-            changed_by: payload.received_by,
+            changed_by: receivedBy,
 
             new_value: {
               payment_amount: paymentAmount,

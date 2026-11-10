@@ -11,15 +11,16 @@ import {
 
 import { UserRolesService } from './user-roles.service';
 import { RequirePermissions } from '../../common/decorators/require-permissions.decorator';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { AuthGuard } from 'src/middlewares/auth.guard';
 
+@UseGuards(AuthGuard, PermissionsGuard)
 @Controller('users')
 export class UserRolesController {
   constructor(
     private readonly userRolesService: UserRolesService,
   ) {}
 
-  @UseGuards(AuthGuard)
   @Get(':id/roles')
   @RequirePermissions('users.view')
   async getUserRoles(
@@ -34,7 +35,6 @@ export class UserRolesController {
     );
   }
 
-  @UseGuards(AuthGuard)
   @Post(':id/roles')
   @RequirePermissions('users.edit')
   async assignRoles(

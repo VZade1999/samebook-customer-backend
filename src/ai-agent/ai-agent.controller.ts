@@ -19,9 +19,12 @@ import { errorRes, failedRes, successRes } from 'src/Util/response.util';
 import { ChatDto } from './dto/chat.dto';
 import { UploadDocumentDto } from './dto/uploadDocument.dto';
 import { AuthGuard } from 'src/middlewares/auth.guard';
+import { PermissionsGuard } from 'src/common/guards/permissions.guard';
+import { RequirePermissions } from 'src/common/decorators/require-permissions.decorator';
 
 @Controller('ai-agent')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, PermissionsGuard)
+@RequirePermissions('ai_agent.view')
 export class AiAgentController {
   constructor(
     private readonly aiAgentService: AiAgentService,
