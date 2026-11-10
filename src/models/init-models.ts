@@ -225,6 +225,23 @@ import type {
   leave_requestsCreationAttributes,
 } from './leave_requests';
 
+import {
+  attendance_settings as _attendance_settings,
+  attendance_settings,
+} from './attendance_settings';
+import type {
+  attendance_settingsAttributes,
+  attendance_settingsCreationAttributes,
+} from './attendance_settings';
+import {
+  attendance_holidays as _attendance_holidays,
+  attendance_holidays,
+} from './attendance_holidays';
+import type {
+  attendance_holidaysAttributes,
+  attendance_holidaysCreationAttributes,
+} from './attendance_holidays';
+
 import { ai_agent_messages as _ai_agent_messages, ai_agent_messages } from './ai_agent_messages';
 import type {
   ai_agent_messagesAttributes,
@@ -288,6 +305,8 @@ export {
   _warehouses as warehouses,
   _attendance as attendance,
   _leave_requests as leave_requests,
+  _attendance_settings as attendance_settings,
+  _attendance_holidays as attendance_holidays,
   _ai_agent_messages as ai_agent_messages,
   _delivery_challans as delivery_challans,
   _delivery_challan_items as delivery_challan_items,
@@ -325,6 +344,8 @@ export type {
   warehousesAttributes,
   attendanceAttributes,
   leave_requestsAttributes,
+  attendance_settingsAttributes,
+  attendance_holidaysAttributes,
   ai_agent_messagesAttributes,
   delivery_challansAttributes,
   delivery_challan_itemsAttributes,
@@ -357,6 +378,8 @@ export function initModels(sequelize: Sequelize) {
   const warehouses = _warehouses.initModel(sequelize);
   const attendance = _attendance.initModel(sequelize);
   const leave_requests = _leave_requests.initModel(sequelize);
+  const attendance_settings = _attendance_settings.initModel(sequelize);
+  const attendance_holidays = _attendance_holidays.initModel(sequelize);
   const ai_agent_messages = _ai_agent_messages.initModel(sequelize);
 
 const invoice_items =
@@ -827,6 +850,14 @@ invoice_activity_logs.belongsTo(users, {
   leave_requests.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
   leave_requests.belongsTo(users, { as: 'reviewer', foreignKey: 'reviewed_by' });
 
+  // COMPANIES <-> ATTENDANCE_SETTINGS / ATTENDANCE_HOLIDAYS
+  companies.hasOne(attendance_settings, { as: 'attendance_settings', foreignKey: 'company_id' });
+  attendance_settings.belongsTo(companies, { as: 'company', foreignKey: 'company_id' });
+  attendance_settings.belongsTo(users, { as: 'updated_by_user', foreignKey: 'updated_by' });
+  companies.hasMany(attendance_holidays, { as: 'attendance_holidays', foreignKey: 'company_id' });
+  attendance_holidays.belongsTo(companies, { as: 'company', foreignKey: 'company_id' });
+  attendance_holidays.belongsTo(users, { as: 'created_by_user', foreignKey: 'created_by' });
+
   // users <-> refresh_tokens
   users.hasMany(refresh_tokens, { as: 'refresh_tokens', foreignKey: 'user_id' });
   refresh_tokens.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
@@ -928,6 +959,8 @@ invoice_activity_logs.belongsTo(users, {
     warehouses,
     attendance,
     leave_requests,
+    attendance_settings,
+    attendance_holidays,
     ai_agent_messages,
     delivery_challans,
     delivery_challan_items,
