@@ -20,6 +20,7 @@ import { WarehousesModule } from './warehouses/warehouses.module';
 import { ProfileModule } from './profile/profile.module';
 import { AttendanceModule } from './attendance/attendance.module';
 import { LeaveModule } from './leave/leave.module';
+import { DeliveryChallanModule } from './delivery-challan/delivery-challan.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -54,6 +55,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     ProfileModule,
     AttendanceModule,
     LeaveModule,
+    DeliveryChallanModule,
   ],
   //controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],

@@ -5,4 +5,5 @@ export enum DocumentType {
   PURCHASE_ORDER = 'PO',
   CREDIT_NOTE = 'CN',
   DEBIT_NOTE = 'DN',
+  DELIVERY_CHALLAN = 'DC',
 }

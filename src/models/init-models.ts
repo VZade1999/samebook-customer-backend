@@ -231,6 +231,31 @@ import type {
   ai_agent_messagesCreationAttributes,
 } from './ai_agent_messages';
 
+import {
+  delivery_challans as _delivery_challans,
+  delivery_challans,
+} from './delivery_challans';
+import type {
+  delivery_challansAttributes,
+  delivery_challansCreationAttributes,
+} from './delivery_challans';
+import {
+  delivery_challan_items as _delivery_challan_items,
+  delivery_challan_items,
+} from './delivery_challan_items';
+import type {
+  delivery_challan_itemsAttributes,
+  delivery_challan_itemsCreationAttributes,
+} from './delivery_challan_items';
+import {
+  delivery_challan_activity_logs as _delivery_challan_activity_logs,
+  delivery_challan_activity_logs,
+} from './delivery_challan_activity_logs';
+import type {
+  delivery_challan_activity_logsAttributes,
+  delivery_challan_activity_logsCreationAttributes,
+} from './delivery_challan_activity_logs';
+
 export {
   _users as users,
   _roles as roles,
@@ -264,6 +289,9 @@ export {
   _attendance as attendance,
   _leave_requests as leave_requests,
   _ai_agent_messages as ai_agent_messages,
+  _delivery_challans as delivery_challans,
+  _delivery_challan_items as delivery_challan_items,
+  _delivery_challan_activity_logs as delivery_challan_activity_logs,
 };
 
 export type {
@@ -298,6 +326,9 @@ export type {
   attendanceAttributes,
   leave_requestsAttributes,
   ai_agent_messagesAttributes,
+  delivery_challansAttributes,
+  delivery_challan_itemsAttributes,
+  delivery_challan_activity_logsAttributes,
 };
 
 export function initModels(sequelize: Sequelize) {
@@ -804,6 +835,55 @@ invoice_activity_logs.belongsTo(users, {
   users.hasMany(ai_agent_messages, { as: 'ai_agent_messages', foreignKey: 'user_id' });
   ai_agent_messages.belongsTo(users, { as: 'user', foreignKey: 'user_id' });
 
+  // DELIVERY CHALLANS
+  const delivery_challans = _delivery_challans.initModel(sequelize);
+  const delivery_challan_items = _delivery_challan_items.initModel(sequelize);
+  const delivery_challan_activity_logs =
+    _delivery_challan_activity_logs.initModel(sequelize);
+
+  delivery_challans.hasMany(delivery_challan_items, {
+    as: 'items',
+    foreignKey: 'delivery_challan_id',
+  });
+  delivery_challan_items.belongsTo(delivery_challans, {
+    as: 'challan',
+    foreignKey: 'delivery_challan_id',
+  });
+
+  delivery_challans.hasMany(delivery_challan_activity_logs, {
+    as: 'activity',
+    foreignKey: 'delivery_challan_id',
+  });
+  delivery_challan_activity_logs.belongsTo(delivery_challans, {
+    as: 'challan',
+    foreignKey: 'delivery_challan_id',
+  });
+  delivery_challan_activity_logs.belongsTo(users, {
+    as: 'changed_by_user',
+    foreignKey: 'changed_by',
+  });
+
+  delivery_challans.belongsTo(warehouses, {
+    as: 'from_warehouse',
+    foreignKey: 'from_warehouse_id',
+  });
+  delivery_challans.belongsTo(warehouses, {
+    as: 'to_warehouse',
+    foreignKey: 'to_warehouse_id',
+  });
+  delivery_challans.belongsTo(quotations, {
+    as: 'quotation',
+    foreignKey: 'quotation_id',
+  });
+  delivery_challans.belongsTo(invoices, {
+    as: 'invoice',
+    foreignKey: 'invoice_id',
+  });
+  delivery_challans.belongsTo(users, {
+    as: 'created_by_user',
+    foreignKey: 'created_by',
+  });
+
   // companies <-> users
   companies.hasMany(users, {
     as: 'users',
@@ -849,5 +929,8 @@ invoice_activity_logs.belongsTo(users, {
     attendance,
     leave_requests,
     ai_agent_messages,
+    delivery_challans,
+    delivery_challan_items,
+    delivery_challan_activity_logs,
   };
 }
