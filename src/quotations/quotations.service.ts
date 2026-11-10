@@ -1584,6 +1584,23 @@ export class QuotationService {
         };
       }
 
+      // Only DRAFT (send) and SENT (resend) quotations can be sent. Sending an
+      // approved/invoiced/deleted quotation would silently push it back to
+      // SENT — e.g. an approved quotation that already has delivery challans.
+      if (!['DRAFT', 'SENT'].includes(quotation.status ?? '') || quotation.has_invoice) {
+        await transaction.rollback();
+        log.warn('Quotation cannot be sent in its current status', {
+          quotationId: id,
+          status: quotation.status,
+        });
+
+        return {
+          success: false,
+          message: `Quotation cannot be sent in status ${quotation.status}`,
+          data: null,
+        };
+      }
+
       const currentVersion = Number(quotation.version_number || 1);
       const changedBy = userId ?? quotation.updated_by;
 
