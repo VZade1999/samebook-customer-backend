@@ -10,6 +10,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createHash, randomUUID } from 'crypto';
 import { createReadStream, createWriteStream, promises as fs } from 'fs';
 import * as jwt from 'jsonwebtoken';
+import { getAccessSecret } from '../../auth/jwt.util';
 import * as os from 'os';
 import * as path from 'path';
 import { Readable } from 'stream';
@@ -278,10 +279,9 @@ export class DriveStorage {
 
   // ── direct upload (browser -> storage) ────────────────────────────────
 
+  /** Same secret resolution as login tokens (auth/jwt.util), plus a purpose suffix. */
   private uploadSecret() {
-    const s = process.env.JWT_ACCESS_SECRET;
-    if (!s) throw new Error('JWT_ACCESS_SECRET is not set');
-    return `${s}:drive-upload`;
+    return `${getAccessSecret()}:drive-upload`;
   }
 
   /** Where the browser should PUT the bytes for `key`. */

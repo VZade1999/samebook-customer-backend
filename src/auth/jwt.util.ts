@@ -37,6 +37,9 @@ const ACCESS = () =>
 const REFRESH = () =>
   (refreshSecret ??= getSecret('JWT_REFRESH_SECRET', 'dev-only-refresh-secret-change-me'));
 
+/** The access-token secret, resolved exactly like auth does (for derived keys). */
+export const getAccessSecret = (): string => ACCESS();
+
 /** Resolve both secrets at startup (throws in production if missing). */
 export const assertJwtSecrets = (): void => {
   ACCESS();
