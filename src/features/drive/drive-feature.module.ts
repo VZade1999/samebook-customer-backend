@@ -16,5 +16,6 @@ import { registerDriveModels } from './drive.models';
 export class DriveFeatureModule {
   constructor(@Inject('DATABASE_CONNECTION') dbProvider: any) {
     registerDriveModels(dbProvider.sequelize, dbProvider.db);
+    driveStorage.useDatabase(dbProvider.sequelize);
   }
 }

@@ -3,7 +3,8 @@ import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import { AppLogger } from '../../common/logger/logger.service';
 import { NotificationsService } from '../../notifications/notifications.service';
 import { CreateFolderDto, RestoreVersionDto, UpdateFileDto, UpdateFolderDto } from './dto/drive.dto';
-import { DriveStorage } from './drive.storage';
+import { Readable } from 'stream';
+import { DriveStorage, StoredBlob } from './drive.storage';
 import {
   FOLDER_COLORS,
   MAX_FOLDER_DEPTH,
@@ -50,7 +51,7 @@ const fail = (message: string, status = 400, extra?: Record<string, any>): Resul
 });
 
 /** Hard ceiling enforced by multer; see drive.controller.ts. */
-export const MAX_UPLOAD_MB = 50;
+export const MAX_UPLOAD_MB = 25;
 const DEFAULT_QUOTA_MB = 5 * 1024;
 const USER_ATTRS = ['id', 'first_name', 'last_name', 'email'];
 const ACTIVITY_LIMIT = 60;
@@ -304,6 +305,7 @@ export class DriveService {
     return ok('Drive', {
       can: this.can(r),
       max_upload_mb: MAX_UPLOAD_MB,
+      storage: this.storage.mode,
       colors: FOLDER_COLORS,
       quota: { used_bytes: used, limit_bytes: this.quotaBytes() },
       stats: {
@@ -624,20 +626,123 @@ export class DriveService {
 
   // ─── Files ────────────────────────────────────────────────────────────────
 
-  private async checkUpload(r: DriveRequester, file: UploadedDriveFile | undefined) {
-    if (!file?.path) return fail('Choose a file to upload');
-    const original = sanitizeName(fixUploadName(file.originalname), 200) || 'file';
+  /** Shared checks for every upload path: name, type, size and quota. */
+  private async checkIncoming(r: DriveRequester, originalRaw: unknown, sizeRaw: unknown, mimeRaw: unknown) {
+    const original = sanitizeName(fixUploadName(typeof originalRaw === 'string' ? originalRaw : ''), 200) || 'file';
     const { ext } = splitExt(original);
     if (ext && isBlockedExtension(ext)) {
       return fail(`.${ext} files can't be stored in Drive (executables and web pages are blocked)`, 415);
     }
-    if (file.size <= 0) return fail('The file is empty');
+    const size = Number(sizeRaw);
+    if (!Number.isFinite(size) || size <= 0) return fail('The file is empty');
+    if (size > MAX_UPLOAD_MB * 1024 * 1024) return fail(`Files can be at most ${MAX_UPLOAD_MB} MB`, 413);
     const used = await this.usedBytes(r.companyId);
-    if (used + file.size > this.quotaBytes()) {
+    if (used + size > this.quotaBytes()) {
       return fail('Your company Drive is full. Free plan storage limit reached.', 413, { code: 'QUOTA_EXCEEDED' });
     }
-    return { original, ext, mime: normalizeMime(file.mimetype) };
+    return { original, ext, mime: normalizeMime(mimeRaw), size };
   }
+
+  /** Folder + final name for a new file, or a 409 naming the file it clashes with. */
+  private async placeNewFile(
+    r: DriveRequester,
+    body: { folder_id?: any; name?: any; on_conflict?: any },
+    original: string,
+    ext: string,
+  ): Promise<Result<{ folderId: number | null; name: string }>> {
+    const folderId = body.folder_id && /^\d+$/.test(String(body.folder_id)) ? Number(body.folder_id) : null;
+    if (folderId && !(await this.findFolder(r, folderId))) return fail('Folder not found', 404);
+    let name = keepExtension(sanitizeName(typeof body.name === 'string' ? body.name : '', 200) || original, ext);
+    const siblings = await this.siblingFiles(r.companyId, folderId);
+    const clash = siblings.find((s) => s.name.toLowerCase() === name.toLowerCase());
+    if (clash) {
+      if (body.on_conflict !== 'rename') {
+        return fail(`"${name}" already exists in this folder`, 409, {
+          code: 'NAME_EXISTS',
+          existing: { id: Number(clash.id), name: clash.name, current_version: Number(clash.current_version) },
+        });
+      }
+      name = uniqueName(name, siblings.map((s) => s.name));
+    }
+    return ok('Placed', { folderId, name });
+  }
+
+  private async createFileRecord(
+    r: DriveRequester,
+    blob: StoredBlob,
+    meta: { original: string; ext: string; mime: string },
+    place: { folderId: number | null; name: string },
+    body: { description?: any; tags?: any },
+  ): Promise<Result> {
+    const description = typeof body.description === 'string' ? body.description.trim().slice(0, 5000) || null : null;
+    const tags = parseTags(body.tags);
+    const created = await this.seq.transaction(async (transaction: Transaction) => {
+      const f = await this.Files.create(
+        {
+          company_id: r.companyId,
+          folder_id: place.folderId,
+          name: place.name,
+          description,
+          tags: tagsToDb(tags),
+          extension: meta.ext || null,
+          mime_type: meta.mime,
+          size_bytes: blob.size,
+          current_version: 1,
+          created_by: r.userId,
+          updated_by: r.userId,
+          created_at: new Date(),
+          updated_at: new Date(),
+        },
+        { transaction },
+      );
+      await this.Versions.create(
+        {
+          file_id: f.id,
+          company_id: r.companyId,
+          version_no: 1,
+          storage_key: blob.key,
+          original_name: meta.original,
+          extension: meta.ext || null,
+          mime_type: meta.mime,
+          size_bytes: blob.size,
+          checksum_sha256: blob.sha256,
+          note: 'Original upload',
+          uploaded_by: r.userId,
+        },
+        { transaction },
+      );
+      await this.log(r, { action: 'FILE_UPLOADED', file_id: Number(f.id), new_value: place.name, version_no: 1 }, transaction);
+      return f;
+    });
+    const res = await this.getFile(r, Number(created.id));
+    return res.success ? ok('File uploaded', res.data) : res;
+  }
+
+  private async saveVersion(
+    r: DriveRequester,
+    existing: any,
+    blob: StoredBlob,
+    meta: { original: string; ext: string; mime: string },
+    noteRaw: unknown,
+  ): Promise<Result> {
+    const note = typeof noteRaw === 'string' ? noteRaw.trim().slice(0, 500) || null : null;
+    const versionNo = await this.addVersion(r, Number(existing.id), {
+      storage_key: blob.key,
+      original_name: meta.original,
+      extension: meta.ext || null,
+      mime_type: meta.mime,
+      size_bytes: blob.size,
+      checksum_sha256: blob.sha256,
+      note,
+      restored_from: null,
+    });
+    if (typeof versionNo !== 'number') return versionNo;
+    await this.notifyOwner(r, existing, `uploaded version ${versionNo} of`);
+    const res = await this.getFile(r, Number(existing.id));
+    return res.success ? ok(`Version ${versionNo} uploaded`, res.data) : res;
+  }
+
+  // ── Multipart uploads through the API (local mode, scripts, small files) ──
 
   async uploadFile(
     r: DriveRequester,
@@ -645,68 +750,13 @@ export class DriveService {
     body: { folder_id?: string; name?: string; description?: string; tags?: any; on_conflict?: string },
   ): Promise<Result> {
     try {
-      const checked = await this.checkUpload(r, file);
+      if (!file?.path) return fail('Choose a file to upload');
+      const checked = await this.checkIncoming(r, file.originalname, file.size, file.mimetype);
       if ('success' in checked) return checked;
-      const { original, ext, mime } = checked;
-
-      const folderId = body.folder_id && /^\d+$/.test(String(body.folder_id)) ? Number(body.folder_id) : null;
-      if (folderId && !(await this.findFolder(r, folderId))) return fail('Folder not found', 404);
-
-      let name = keepExtension(sanitizeName(body.name || '', 200) || original, ext);
-      const description = typeof body.description === 'string' ? body.description.trim().slice(0, 5000) || null : null;
-      const tags = parseTags(body.tags);
-
-      const siblings = await this.siblingFiles(r.companyId, folderId);
-      const clash = siblings.find((s) => s.name.toLowerCase() === name.toLowerCase());
-      if (clash) {
-        if (body.on_conflict !== 'rename') {
-          return fail(`"${name}" already exists in this folder`, 409, {
-            code: 'NAME_EXISTS',
-            existing: { id: Number(clash.id), name: clash.name, current_version: Number(clash.current_version) },
-          });
-        }
-        name = uniqueName(name, siblings.map((s) => s.name));
-      }
-
-      const blob = await this.storage.put(r.companyId, file!.path, ext);
-      const created = await this.seq.transaction(async (transaction: Transaction) => {
-        const f = await this.Files.create(
-          {
-            company_id: r.companyId,
-            folder_id: folderId,
-            name,
-            description,
-            tags: tagsToDb(tags),
-            extension: ext || null,
-            mime_type: mime,
-            size_bytes: blob.size,
-            current_version: 1,
-            created_by: r.userId,
-            updated_by: r.userId,
-          },
-          { transaction },
-        );
-        await this.Versions.create(
-          {
-            file_id: f.id,
-            company_id: r.companyId,
-            version_no: 1,
-            storage_key: blob.key,
-            original_name: original,
-            extension: ext || null,
-            mime_type: mime,
-            size_bytes: blob.size,
-            checksum_sha256: blob.sha256,
-            note: 'Original upload',
-            uploaded_by: r.userId,
-          },
-          { transaction },
-        );
-        await this.log(r, { action: 'FILE_UPLOADED', file_id: Number(f.id), new_value: name, version_no: 1 }, transaction);
-        return f;
-      });
-      const res = await this.getFile(r, Number(created.id));
-      return res.success ? ok('File uploaded', res.data) : res;
+      const place = await this.placeNewFile(r, body, checked.original, checked.ext);
+      if (!place.success) return place;
+      const blob = await this.storage.put(r.companyId, file.path, checked.ext, checked.mime);
+      return await this.createFileRecord(r, blob, checked, place.data, body);
     } finally {
       // put() moved the temp file away on success; this only cleans rejected uploads.
       await this.storage.discardTemp(file?.path);
@@ -722,29 +772,143 @@ export class DriveService {
     try {
       const existing = await this.Files.findOne({ where: { id, company_id: r.companyId } });
       if (!existing) return fail('File not found', 404);
-      const checked = await this.checkUpload(r, file);
+      if (!file?.path) return fail('Choose a file to upload');
+      const checked = await this.checkIncoming(r, file.originalname, file.size, file.mimetype);
       if ('success' in checked) return checked;
-      const { original, ext, mime } = checked;
-      const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) || null : null;
-
-      const blob = await this.storage.put(r.companyId, file!.path, ext);
-      const versionNo = await this.addVersion(r, id, {
-        storage_key: blob.key,
-        original_name: original,
-        extension: ext || null,
-        mime_type: mime,
-        size_bytes: blob.size,
-        checksum_sha256: blob.sha256,
-        note,
-        restored_from: null,
-      });
-      if (typeof versionNo !== 'number') return versionNo;
-      await this.notifyOwner(r, existing, `uploaded version ${versionNo} of`);
-      const res = await this.getFile(r, id);
-      return res.success ? ok(`Version ${versionNo} uploaded`, res.data) : res;
+      const blob = await this.storage.put(r.companyId, file.path, checked.ext, checked.mime);
+      return await this.saveVersion(r, existing, blob, checked, body.note);
     } finally {
       await this.storage.discardTemp(file?.path);
     }
+  }
+
+  // ── Direct uploads: browser -> storage, then commit ───────────────────────
+  // 1. presign: validate (permission, type, size, quota, name clash) and get a
+  //    one-off key + PUT target. 2. the browser PUTs the bytes there.
+  // 3. commit: verify the object really exists with an allowed size, then
+  //    create the file / version rows. Bytes never pass through the API in S3
+  //    mode, which is what makes large files work on Vercel.
+
+  async presignUpload(
+    r: DriveRequester,
+    body: {
+      purpose?: string;
+      file_id?: any;
+      folder_id?: any;
+      original_name?: any;
+      name?: any;
+      size?: any;
+      mime?: any;
+      on_conflict?: any;
+    },
+  ): Promise<Result> {
+    const purpose = body.purpose === 'version' ? 'version' : 'file';
+    const can = this.can(r);
+    if (purpose === 'file' && !can.create) return fail('You do not have permission to upload files', 403);
+    if (purpose === 'version') {
+      if (!can.update) return fail('You do not have permission to upload new versions', 403);
+      const fid = Number(body.file_id);
+      if (!fid || !(await this.Files.count({ where: { id: fid, company_id: r.companyId } }))) {
+        return fail('File not found', 404);
+      }
+    }
+    if (this.storage.mode === 'unconfigured') return fail('Drive file storage is not configured on this server', 503);
+    // original_name = the file on disk (decides the type); name = what the user wants it called.
+    const checked = await this.checkIncoming(r, body.original_name ?? body.name, body.size, body.mime);
+    if ('success' in checked) return checked;
+    let finalName: string | null = null;
+    if (purpose === 'file') {
+      const place = await this.placeNewFile(r, body, checked.original, checked.ext);
+      if (!place.success) return place;
+      finalName = place.data.name;
+    }
+    const key = this.storage.newKey(r.companyId, checked.ext);
+    const upload = await this.storage.uploadTarget(r.companyId, key, checked.mime, MAX_UPLOAD_MB * 1024 * 1024);
+    void this.storage.sweepOrphans(); // tidy abandoned uploads, at most every 10 minutes
+    return ok('Upload ready', { key, upload, mime: checked.mime, name: finalName });
+  }
+
+  /** Verifies an uploaded object before it becomes a version. */
+  private async receivedBlob(r: DriveRequester, key: unknown, checksum: unknown): Promise<Result<StoredBlob>> {
+    if (!this.storage.isCompanyKey(key, r.companyId)) return fail('Invalid upload reference', 400);
+    if (await this.Versions.count({ where: { storage_key: key } })) return fail('This upload was already saved', 409);
+    const st = await this.storage.stat(key);
+    if (!st) return fail('The upload did not reach storage. Please try again.', 409);
+    if (st.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      await this.storage.discardObject(key);
+      return fail(`Files can be at most ${MAX_UPLOAD_MB} MB`, 413);
+    }
+    const claimed = typeof checksum === 'string' && /^[a-f0-9]{64}$/.test(checksum) ? checksum : null;
+    return ok('Received', { key, size: st.size, sha256: st.sha256 || claimed });
+  }
+
+  async commitFile(
+    r: DriveRequester,
+    body: { key?: any; original_name?: any; mime?: any; checksum?: any; folder_id?: any; name?: any; description?: any; tags?: any; on_conflict?: any },
+  ): Promise<Result> {
+    if (!this.can(r).create) return fail('You do not have permission to upload files', 403);
+    const blob = await this.receivedBlob(r, body.key, body.checksum);
+    if (!blob.success) return blob;
+    const checked = await this.checkIncoming(r, body.original_name, blob.data.size, body.mime);
+    if ('success' in checked) {
+      await this.storage.discardObject(blob.data.key);
+      return checked;
+    }
+    if (checked.ext !== this.storage.extOfKey(blob.data.key)) {
+      await this.storage.discardObject(blob.data.key);
+      return fail('The file type changed during upload', 400);
+    }
+    // A name clash here (someone uploaded the same name meanwhile) keeps the
+    // object, so the client can still save it as a version or "keep both".
+    const place = await this.placeNewFile(r, body, checked.original, checked.ext);
+    if (!place.success) return place;
+    return this.createFileRecord(r, blob.data, checked, place.data, body);
+  }
+
+  async commitVersion(
+    r: DriveRequester,
+    id: number,
+    body: { key?: any; original_name?: any; mime?: any; checksum?: any; note?: any },
+  ): Promise<Result> {
+    const existing = await this.Files.findOne({ where: { id, company_id: r.companyId } });
+    if (!existing) return fail('File not found', 404);
+    const blob = await this.receivedBlob(r, body.key, body.checksum);
+    if (!blob.success) return blob;
+    const checked = await this.checkIncoming(r, body.original_name, blob.data.size, body.mime);
+    if ('success' in checked) {
+      await this.storage.discardObject(blob.data.key);
+      return checked;
+    }
+    if (checked.ext !== this.storage.extOfKey(blob.data.key)) {
+      await this.storage.discardObject(blob.data.key);
+      return fail('The file type changed during upload', 400);
+    }
+    return this.saveVersion(r, existing, blob.data, checked, body.note);
+  }
+
+  /**
+   * Receives the raw bytes of a direct upload made through the API:
+   * db mode = one 2 MB part (?part=n, retry-safe); local mode = the whole file.
+   */
+  async receiveLocalUpload(r: DriveRequester, token: string, body: Readable, partRaw?: string): Promise<Result> {
+    const mode = this.storage.mode;
+    if (mode !== 'local' && mode !== 'db') return fail('Uploads go directly to storage on this server', 400);
+    const t = this.storage.verifyUploadToken(token);
+    if (!t || t.companyId !== Number(r.companyId) || !this.storage.isCompanyKey(t.key, r.companyId)) {
+      return fail('This upload link is invalid or has expired', 403);
+    }
+    if (mode === 'db') {
+      // Parts can be re-sent until the file is saved; after that the link is spent.
+      if (await this.Versions.count({ where: { storage_key: t.key } })) {
+        return fail('This upload link was already used', 409);
+      }
+      const seq = partRaw !== undefined && /^\d+$/.test(partRaw) ? Number(partRaw) : 0;
+      const part = await this.storage.receivePart(t.key, seq, body, t.maxBytes);
+      return ok('Received', { key: t.key, part: seq, size: part.size });
+    }
+    if (await this.storage.exists(t.key)) return fail('This upload link was already used', 409);
+    const blob = await this.storage.writeStream(t.key, body, t.maxBytes);
+    return ok('Received', { key: blob.key, size: blob.size });
   }
 
   async restoreVersion(r: DriveRequester, id: number, versionId: number, dto: RestoreVersionDto) {
@@ -931,33 +1095,92 @@ export class DriveService {
     return res.success ? ok('File updated', res.data) : res;
   }
 
-  /** Resolves the bytes of the current (or a given) version for streaming. */
-  async download(r: DriveRequester, id: number, versionRaw?: string) {
+  private async resolveVersion(r: DriveRequester, id: number, versionRaw?: string) {
     const f = await this.Files.findOne({ where: { id, company_id: r.companyId } });
     if (!f) return fail('File not found', 404);
     const versionNo = versionRaw && /^\d+$/.test(versionRaw) ? Number(versionRaw) : Number(f.current_version);
     const v = await this.Versions.findOne({ where: { file_id: id, company_id: r.companyId, version_no: versionNo } });
     if (!v) return fail('Version not found', 404);
+    if (this.storage.mode === 'unconfigured') return fail('Drive file storage is not configured on this server', 503);
     if (!(await this.storage.exists(v.storage_key))) {
       this.appLogger
         .forContext('DriveService', 'download', { fileId: id, versionNo })
-        .error('Drive blob missing on disk', new Error(v.storage_key));
-      return fail('The stored copy of this file is missing', 410);
+        .error(`Drive blob missing in ${this.storage.mode} storage`, new Error(v.storage_key));
+      return fail(
+        'The stored copy of this file is missing. It was probably uploaded on another server (e.g. a local machine) before shared storage was set up.',
+        410,
+      );
     }
     const isCurrent = versionNo === Number(f.current_version);
     const { base, ext } = splitExt(f.name);
     const vExt = (v.extension || '').toLowerCase();
     // Old versions download as "Quote (v2).pdf" with that version's own extension.
     const filename = isCurrent
-      ? f.name
+      ? (f.name as string)
       : `${ext === (f.extension || '').toLowerCase() ? base : f.name} (v${versionNo})${vExt ? `.${vExt}` : ''}`;
-    return ok('Download', {
-      stream: this.storage.open(v.storage_key),
+    return ok('Version', {
+      key: v.storage_key as string,
+      versionNo,
       size: Number(v.size_bytes || 0),
-      mime: v.mime_type || 'application/octet-stream',
+      mime: (v.mime_type as string) || 'application/octet-stream',
       filename,
       inlineSafe: isInlineSafe(v.mime_type),
       checksum: v.checksum_sha256 as string | null,
     });
+  }
+
+  /**
+   * Where the browser should fetch a version from. S3: a 15-minute pre-signed
+   * link (inline only for safe types). Local: the API's own download route.
+   */
+  async link(r: DriveRequester, id: number, versionRaw?: string, inlineRaw?: string): Promise<Result> {
+    const res = await this.resolveVersion(r, id, versionRaw);
+    if (!res.success) return res;
+    const d = res.data;
+    const inline = inlineRaw === '1' && d.inlineSafe;
+    if (this.storage.mode === 's3') {
+      const url = await this.storage.signedLink(d.key, {
+        filename: d.filename,
+        mime: d.inlineSafe ? d.mime : 'application/octet-stream',
+        inline,
+      });
+      return ok('Link', { url, via_api: false, filename: d.filename, expires_in: 900 });
+    }
+    if (this.storage.mode === 'db') {
+      // Vercel caps responses at 4.5 MB, so the browser fetches the file in
+      // 2 MB parts (pinned to this version) and joins them into a Blob.
+      const { count } = await this.storage.chunkInfo(d.key);
+      return ok('Link', {
+        url: `/drive/files/${id}/download?version=${d.versionNo}`,
+        via_api: true,
+        filename: d.filename,
+        chunked: { parts: count, size: d.size, mime: d.inlineSafe ? d.mime : 'application/octet-stream' },
+      });
+    }
+    const q = new URLSearchParams();
+    if (versionRaw && /^\d+$/.test(versionRaw)) q.set('version', versionRaw);
+    if (inline) q.set('inline', '1');
+    const qs = q.toString();
+    return ok('Link', { url: `/drive/files/${id}/download${qs ? `?${qs}` : ''}`, via_api: true, filename: d.filename });
+  }
+
+  /**
+   * Local/db: the bytes to stream (db with ?part=n: just that 2 MB part).
+   * S3: a redirect to a pre-signed link.
+   */
+  async download(r: DriveRequester, id: number, versionRaw?: string, inlineRaw?: string, partRaw?: string): Promise<Result> {
+    if (this.storage.mode === 's3') {
+      const link = await this.link(r, id, versionRaw, inlineRaw);
+      return link.success ? ok('Redirect', { redirect: link.data.url as string }) : link;
+    }
+    const res = await this.resolveVersion(r, id, versionRaw);
+    if (!res.success) return res;
+    if (this.storage.mode === 'db' && partRaw !== undefined) {
+      if (!/^\d+$/.test(partRaw)) return fail('Invalid part', 400);
+      const part = await this.storage.readChunk(res.data.key, Number(partRaw));
+      if (!part) return fail('Part not found', 404);
+      return ok('Part', { part });
+    }
+    return ok('Download', { ...res.data, stream: this.storage.open(res.data.key) });
   }
 }

@@ -6,6 +6,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -81,10 +82,60 @@ export class DriveController {
         return res.status(r.status || 400).send({ success: false, message: r.message, ...(r.extra || {}) });
       }
       return res.status(200).send({ success: true, message: r.message, data: r.data ?? null });
-    } catch (error) {
+    } catch (error: any) {
+      // Storage errors carry a status (503 not configured, 413 too large).
+      if (error?.status && error.status < 500 || error?.status === 503) {
+        return res.status(error.status).send({ success: false, message: error.message });
+      }
       this.appLogger.forContext('DriveController', name, {}).error(`${name} failed`, error);
       return errorRes(res, error);
     }
+  }
+
+  // ── Direct uploads (browser -> storage) ────────────────────────────────
+
+  @Post('/uploads/presign')
+  presign(@Req() req: Request, @Res() res: Response, @Body() body: any) {
+    return this.run(res, 'presign', () => this.drive.presignUpload(this.requester(req), body || {}));
+  }
+
+  /** Local storage only: the browser PUTs raw bytes here (application/octet-stream). */
+  @Put('/uploads/:token')
+  receive(@Req() req: Request, @Res() res: Response, @Param('token') token: string) {
+    // If the upload is refused before its body was read, close the connection
+    // (and drain what's left) so the client gets the JSON error, not a reset.
+    res.on('finish', () => {
+      if (!req.complete) req.resume();
+    });
+    const original = res.send.bind(res);
+    (res as any).send = (body: any) => {
+      if (!req.complete && !res.headersSent) res.setHeader('Connection', 'close');
+      return original(body);
+    };
+    const part = typeof req.query.part === 'string' ? req.query.part : undefined;
+    return this.run(res, 'receiveUpload', () => this.drive.receiveLocalUpload(this.requester(req), token, req, part));
+  }
+
+  @Post('/files/commit')
+  commitFile(@Req() req: Request, @Res() res: Response, @Body() body: any) {
+    return this.run(res, 'commitFile', () => this.drive.commitFile(this.requester(req), body || {}));
+  }
+
+  @Post('/files/:id/versions/commit')
+  @RequirePermissions('drive.update')
+  commitVersion(@Req() req: Request, @Res() res: Response, @Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    return this.run(res, 'commitVersion', () => this.drive.commitVersion(this.requester(req), id, body || {}));
+  }
+
+  @Get('/files/:id/link')
+  link(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('version') version?: string,
+    @Query('inline') inline?: string,
+  ) {
+    return this.run(res, 'link', () => this.drive.link(this.requester(req), id, version, inline));
   }
 
   @Get('/meta')
@@ -197,10 +248,20 @@ export class DriveController {
     @Param('id', ParseIntPipe) id: number,
     @Query('version') version?: string,
     @Query('inline') inline?: string,
+    @Query('part') part?: string,
   ) {
     try {
-      const r: any = await this.drive.download(this.requester(req), id, version);
+      const r: any = await this.drive.download(this.requester(req), id, version, inline, part);
       if (!r.success) return res.status(r.status).send({ success: false, message: r.message });
+      if (r.data.redirect) return res.redirect(302, r.data.redirect);
+      if (r.data.part) {
+        // One 2 MB part of a db-stored version (immutable, so cacheable).
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('Content-Length', String(r.data.part.length));
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
+        return res.end(r.data.part);
+      }
       const d = r.data;
       const asInline = inline === '1' && d.inlineSafe;
       res.setHeader('Content-Type', asInline ? d.mime : d.inlineSafe ? d.mime : 'application/octet-stream');
