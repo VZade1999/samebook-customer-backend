@@ -18,9 +18,9 @@ import { CallbackModule } from './callback/callback.module';
 import { CategoriesModule } from './categories/categories.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { ProfileModule } from './profile/profile.module';
-import { AttendanceModule } from './attendance/attendance.module';
-import { LeaveModule } from './leave/leave.module';
+import { AttendanceFeatureModule } from './features/attendance/attendance-feature.module';
 import { DeliveryChallanModule } from './delivery-challan/delivery-challan.module';
+import { CompanyModulesModule } from './company-modules/company-modules.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -53,9 +53,10 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     CategoriesModule,
     WarehousesModule,
     ProfileModule,
-    AttendanceModule,
-    LeaveModule,
+    // Add-on features
+    AttendanceFeatureModule,
     DeliveryChallanModule,
+    CompanyModulesModule,
   ],
   //controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],

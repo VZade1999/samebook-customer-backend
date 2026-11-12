@@ -18,11 +18,14 @@ import { LeaveService, LeaveRequester } from './leave.service';
 import { errorRes, failedRes, successRes } from 'src/Util/response.util';
 import { CreateLeaveDto } from './dto/createLeave.dto';
 import { ReviewLeaveDto } from './dto/reviewLeave.dto';
-import { AuthGuard } from './../middlewares/auth.guard';
-import { PermissionsGuard } from '../common/guards/permissions.guard';
-import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
+import { AuthGuard } from '../../../middlewares/auth.guard';
+import { PermissionsGuard } from '../../../common/guards/permissions.guard';
+import { ModuleGuard } from '../../../company-modules/module.guard';
+import { RequireModule } from '../../../company-modules/require-module.decorator';
+import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator';
 
-@UseGuards(AuthGuard, PermissionsGuard)
+@UseGuards(AuthGuard, ModuleGuard, PermissionsGuard)
+@RequireModule('attendance')
 @Controller('leave')
 export class LeaveController {
   constructor(
@@ -42,7 +45,7 @@ export class LeaveController {
     try {
       const response = await this.leaveService.requestLeave(body, this.getRequester(req));
       if (!response.success) {
-        log.warn(`Leave request rejected — ${response.message}`);
+        log.warn(`Leave request rejected â€” ${response.message}`);
         return failedRes(res, response.message);
       }
       log.info('Leave requested successfully');
@@ -107,7 +110,7 @@ export class LeaveController {
     try {
       const response = await this.leaveService.approveLeave(id, this.getRequester(req));
       if (!response.success) {
-        log.warn(`Leave approve rejected — ${response.message}`);
+        log.warn(`Leave approve rejected â€” ${response.message}`);
         return failedRes(res, response.message);
       }
       log.info('Leave approved successfully');
@@ -136,7 +139,7 @@ export class LeaveController {
     try {
       const response = await this.leaveService.rejectLeave(id, body, this.getRequester(req));
       if (!response.success) {
-        log.warn(`Leave reject rejected — ${response.message}`);
+        log.warn(`Leave reject rejected â€” ${response.message}`);
         return failedRes(res, response.message);
       }
       log.info('Leave rejected successfully');

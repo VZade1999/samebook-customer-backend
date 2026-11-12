@@ -8,10 +8,16 @@ import  cookieParser from 'cookie-parser';
 import { json } from 'express';
 import { ConstantsService } from './Util/constants.service';
 import { AuthGuard } from './middlewares/auth.guard';
+import { assertJwtSecrets } from './auth/jwt.util';
 
 const PORT = process.env.PORT || 3030;
 
 async function bootstrap() {
+  // .env.local is loaded by now (ConfigModule ran while AppModule was
+  // imported). Resolve the JWT secrets up front so a missing secret fails the
+  // boot in production instead of the first login.
+  assertJwtSecrets();
+
   const app = await NestFactory.create(AppModule);
 
   // Default body-parser limit (100kb) is too small for a base64-encoded

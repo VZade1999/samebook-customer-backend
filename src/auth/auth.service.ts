@@ -17,6 +17,11 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from './jwt.util';
+import { CompanyModulesService } from '../company-modules/company-modules.service';
+import {
+  filterPermissionsByModules,
+  withCoreModules,
+} from '../company-modules/module-catalog';
 
 const COMPANY_ATTRIBUTES = [
   'id',
@@ -40,6 +45,7 @@ export class AuthService {
   constructor(
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
     private readonly appLogger: AppLogger,
+    private readonly companyModules: CompanyModulesService,
   ) {
     this.Users = this.dbProvider.db.users;
     this.UserRole = this.dbProvider.db.user_roles;
@@ -50,7 +56,48 @@ export class AuthService {
     this.RefreshTokens = this.dbProvider.db.refresh_tokens;
   }
 
-  private async loadRolesAndPermissions(userId: number) {
+  /**
+   * Roles + EFFECTIVE permissions: permissions of add-on modules the company
+   * has not connected are dropped, so login, refresh and /auth/session all
+   * agree. Module lookup never throws (fails closed for add-ons only).
+   */
+  private async loadRolesAndPermissions(userId: number, companyId: number) {
+    const { roleNames, permissionNames } = await this.loadRawRolesAndPermissions(userId);
+    const enabledAddOns = await this.companyModules.getEnabledModuleKeys(companyId);
+    return {
+      roleNames,
+      permissionNames: filterPermissionsByModules(permissionNames, enabledAddOns),
+      modules: withCoreModules(enabledAddOns),
+    };
+  }
+
+  /** Fresh roles, effective permissions and enabled modules for the UI. */
+  async getSession(userId: number, companyId: number) {
+    const user: any = await this.Users.findOne({
+      where: { id: userId, company_id: companyId },
+      attributes: ['id', 'company_id', 'is_active'],
+    });
+    if (!user || !user.is_active) {
+      return { success: false as const, message: 'Account is inactive' };
+    }
+    const { roleNames, permissionNames, modules } = await this.loadRolesAndPermissions(
+      user.id,
+      user.company_id,
+    );
+    return {
+      success: true as const,
+      message: 'Session fetched',
+      data: {
+        user_id: user.id,
+        company_id: user.company_id,
+        roles: roleNames,
+        permissions: permissionNames,
+        modules,
+      },
+    };
+  }
+
+  private async loadRawRolesAndPermissions(userId: number) {
     const userRoleRows: any[] = await this.UserRole.findAll({
       where: { user_id: userId },
       include: [
@@ -143,8 +190,12 @@ export class AuthService {
 
     let roleNames: string[];
     let permissionNames: string[];
+    let modules: string[];
     try {
-      ({ roleNames, permissionNames } = await this.loadRolesAndPermissions(user.id));
+      ({ roleNames, permissionNames, modules } = await this.loadRolesAndPermissions(
+        user.id,
+        user.company_id,
+      ));
     } catch (err) {
       logU.error('DB error while fetching roles', err);
       throw new Error('DATABASE_ERROR');
@@ -215,6 +266,7 @@ export class AuthService {
             : null,
           roles: roleNames,
           permissions: permissionNames,
+          modules,
         },
       },
     };
@@ -335,7 +387,10 @@ export class AuthService {
         return { success: false, message: 'Account is inactive' };
       }
 
-      const { roleNames, permissionNames } = await this.loadRolesAndPermissions(user.id);
+      const { roleNames, permissionNames } = await this.loadRolesAndPermissions(
+        user.id,
+        user.company_id,
+      );
       const payload: TokenPayload = {
         userId: user.id,
         companyId: user.company_id,

@@ -7,7 +7,9 @@ import {
   Res,
   Body,
   Get,
+  UseGuards,
 } from '@nestjs/common';
+import { AuthGuard } from '../middlewares/auth.guard';
 import { Throttle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { AuthService } from './auth.service';
@@ -146,6 +148,23 @@ export class AuthController {
       return successRes(res, response.message, response.data);
     } catch (error) {
       log.error('Unhandled error in refresh', error);
+      return errorRes(res, error);
+    }
+  }
+
+  // Fresh roles / effective permissions / enabled modules. The frontend calls
+  // this on load and after connecting or disconnecting an add-on, so access
+  // changes apply without logging out and in again.
+  @Get('/session')
+  @UseGuards(AuthGuard)
+  async session(@Req() req: Request, @Res() res: Response) {
+    const user = (req as any).user || {};
+    try {
+      const response = await this.authService.getSession(user.user_id, user.company_id);
+      if (!response.success) return failedRes(res, response.message, 401);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      this.appLogger.forContext('AuthController', 'session', {}).error('session failed', error);
       return errorRes(res, error);
     }
   }

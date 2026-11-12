@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Op } from 'sequelize';
-import { AppLogger } from '../common/logger/logger.service';
+import { AppLogger } from '../../../common/logger/logger.service';
 import { PunchDto } from './dto/punch.dto';
 import { UpdateAttendanceSettingsDto } from './dto/attendance-settings.dto';
 import { CreateHolidayDto } from './dto/create-holiday.dto';
@@ -154,7 +154,7 @@ export class AttendanceService {
         await openSession.update({
           punch_out: endOfStaleDay,
           total_minutes: staleMinutes,
-          notes: [openSession.notes, `${AUTO_PUNCH_OUT_MARKER} — missed check-out`]
+          notes: [openSession.notes, `${AUTO_PUNCH_OUT_MARKER} â€” missed check-out`]
             .filter(Boolean)
             .join(' | ')
             .slice(0, 255),

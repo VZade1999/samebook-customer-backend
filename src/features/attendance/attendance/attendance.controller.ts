@@ -22,15 +22,18 @@ import { errorRes, failedRes, successRes } from 'src/Util/response.util';
 import { PunchDto } from './dto/punch.dto';
 import { UpdateAttendanceSettingsDto } from './dto/attendance-settings.dto';
 import { CreateHolidayDto } from './dto/create-holiday.dto';
-import { AuthGuard } from './../middlewares/auth.guard';
-import { PermissionsGuard } from '../common/guards/permissions.guard';
-import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
+import { AuthGuard } from '../../../middlewares/auth.guard';
+import { PermissionsGuard } from '../../../common/guards/permissions.guard';
+import { ModuleGuard } from '../../../company-modules/module.guard';
+import { RequireModule } from '../../../company-modules/require-module.decorator';
+import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator';
 
 // Self-service routes (punch, today, history, calendar) resolve to the
 // caller's own rows (req.user.user_id). Team routes and settings/holiday
 // writes require attendance.manage. Everything is scoped to the caller's
 // company (req.user.company_id).
-@UseGuards(AuthGuard, PermissionsGuard)
+@UseGuards(AuthGuard, ModuleGuard, PermissionsGuard)
+@RequireModule('attendance')
 @Controller('attendance')
 export class AttendanceController {
   constructor(
@@ -50,7 +53,7 @@ export class AttendanceController {
     try {
       const response = await this.attendanceService.punchIn(body, this.getRequester(req));
       if (!response.success) {
-        log.warn(`Punch-in rejected — ${response.message}`);
+        log.warn(`Punch-in rejected â€” ${response.message}`);
         return failedRes(res, response.message);
       }
       log.info('Punch-in response sent successfully');
@@ -73,7 +76,7 @@ export class AttendanceController {
     try {
       const response = await this.attendanceService.punchOut(body, this.getRequester(req));
       if (!response.success) {
-        log.warn(`Punch-out rejected — ${response.message}`);
+        log.warn(`Punch-out rejected â€” ${response.message}`);
         return failedRes(res, response.message);
       }
       log.info('Punch-out response sent successfully');
@@ -258,7 +261,7 @@ export class AttendanceController {
     try {
       const response = await this.attendanceService.getTeamSummary(month, this.getRequester(req));
       if (!response.success) {
-        log.warn(`Team summary rejected — ${response.message}`);
+        log.warn(`Team summary rejected â€” ${response.message}`);
         return failedRes(res, response.message);
       }
       return successRes(res, response.message, response.data);

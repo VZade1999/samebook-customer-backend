@@ -294,6 +294,8 @@ export class RolesService {
         name: role.name,
         description:
           role.description,
+        company_id: role.company_id,
+        is_system: role.is_system,
       }));
     } catch (error) {
       this.logger.error(

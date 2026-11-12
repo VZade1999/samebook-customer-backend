@@ -15,22 +15,24 @@ import { DocumentExtractionError, extractTextFromDocument } from './document-ext
 import { callGemini, GeminiRateLimitError } from './providers/gemini.adapter';
 
 // Overridable via env so a model deprecation doesn't require a code
-// change/redeploy — just an env var update.
-const AI_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
-const CEREBRAS_MODEL = process.env.CEREBRAS_MODEL || 'gpt-oss-120b';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+// change/redeploy â€” just an env var update.
+// Functions, not constants: this file is imported before ConfigModule loads
+// .env.local, so reading process.env at import time ignored these settings.
+const aiModel = () => process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
+const cerebrasModel = () => process.env.CEREBRAS_MODEL || 'gpt-oss-120b';
+const geminiModel = () => process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
-// Each tool-loop iteration is a paid API call plus real DB writes — capped
+// Each tool-loop iteration is a paid API call plus real DB writes â€” capped
 // so a model stuck re-requesting tools (or a manipulated conversation that
 // induces looping) can't run unbounded.
 const MAX_TOOL_ITERATIONS = 8;
 
-// Bounds how long a single Groq call can hang before failing — the chat
+// Bounds how long a single Groq call can hang before failing â€” the chat
 // endpoint should fail fast rather than hold the request open indefinitely.
 const GROQ_TIMEOUT_MS = 20_000;
 
 // Multi-key rotation happens at our own layer (see createChatCompletion
-// below), not the SDK's — retries here would just burn time re-hitting an
+// below), not the SDK's â€” retries here would just burn time re-hitting an
 // already-confirmed-limited key before we get a chance to rotate off it.
 const GROQ_MAX_RETRIES = 0;
 
@@ -40,16 +42,16 @@ const GROQ_MAX_RETRIES = 0;
 const DEFAULT_COOLDOWN_SECONDS = 30;
 
 // How many of the user's most recent stored messages get loaded back in as
-// conversation context — bounds prompt size/cost regardless of how long a
+// conversation context â€” bounds prompt size/cost regardless of how long a
 // user's overall chat history grows. Kept modest because the fixed
 // per-request overhead (system prompt + all tool schemas) already eats a
 // large chunk of this org's Groq tokens-per-minute budget on its own.
 const HISTORY_LOAD_LIMIT = 10;
 
 // How much of an uploaded document's extracted text gets persisted to
-// history (chatWithDocument). It needs to survive into follow-up turns —
+// history (chatWithDocument). It needs to survive into follow-up turns â€”
 // e.g. the model asking a clarifying question about the customer, then
-// needing the product list again once the user answers — so it can't be
+// needing the product list again once the user answers â€” so it can't be
 // dropped entirely, but it's capped so one unusually large document can't
 // dominate the token budget for the rest of the conversation.
 const MAX_PERSISTED_DOCUMENT_CHARS = 3000;
@@ -87,12 +89,12 @@ function buildPaymentSnapshot(account: any): string {
 
 // Groq and Cerebras are both OpenAI-API-compatible (identical
 // chat.completions.create shape), so they share one rotation pool with zero
-// translation — just a different client instance and model name per slot.
+// translation â€” just a different client instance and model name per slot.
 interface ChatKeySlot {
   client: Groq | Cerebras;
   provider: 'cerebras' | 'groq';
   model: string;
-  label: string; // for logging only — never the raw key
+  label: string; // for logging only â€” never the raw key
   cooldownUntil: number; // epoch ms; 0 = available now
 }
 
@@ -104,8 +106,8 @@ interface GeminiKeySlot {
 
 @Injectable()
 export class AiAgentService {
-  // Tried in this order: Gemini (highest free TPM) → Cerebras/Groq pool
-  // (in that array order) — so a Groq TPM ceiling stops being a dead end
+  // Tried in this order: Gemini (highest free TPM) â†’ Cerebras/Groq pool
+  // (in that array order) â€” so a Groq TPM ceiling stops being a dead end
   // the moment either of the other two is configured.
   private readonly geminiKeys: GeminiKeySlot[];
   private readonly chatKeys: ChatKeySlot[];
@@ -136,14 +138,14 @@ export class AiAgentService {
     );
 
     // CEREBRAS_API_KEYS / CEREBRAS_API_KEY, then GROQ_API_KEYS / GROQ_API_KEY
-    // — merged into one pool, Cerebras entries first per the fallback order
+    // â€” merged into one pool, Cerebras entries first per the fallback order
     // above.
     const cerebrasSlots: ChatKeySlot[] = parseKeys(
       process.env.CEREBRAS_API_KEYS || process.env.CEREBRAS_API_KEY,
     ).map((apiKey, i) => ({
       client: new Cerebras({ apiKey, timeout: GROQ_TIMEOUT_MS, maxRetries: GROQ_MAX_RETRIES }),
       provider: 'cerebras',
-      model: CEREBRAS_MODEL,
+      model: cerebrasModel(),
       label: `cerebras#${i + 1}`,
       cooldownUntil: 0,
     }));
@@ -153,7 +155,7 @@ export class AiAgentService {
     ).map((apiKey, i) => ({
       client: new Groq({ apiKey, timeout: GROQ_TIMEOUT_MS, maxRetries: GROQ_MAX_RETRIES }),
       provider: 'groq',
-      model: AI_MODEL,
+      model: aiModel(),
       label: `groq#${i + 1}`,
       cooldownUntil: 0,
     }));
@@ -182,7 +184,7 @@ export class AiAgentService {
 
     let lastErr: any;
 
-    // ── Gemini tier ─────────────────────────────────────────────────────
+    // â”€â”€ Gemini tier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const geminiTotal = this.geminiKeys.length;
     for (let attempt = 0; attempt < geminiTotal; attempt++) {
       const idx = (this.nextGeminiIndex + attempt) % geminiTotal;
@@ -190,7 +192,7 @@ export class AiAgentService {
       if (slot.cooldownUntil > Date.now()) continue;
 
       try {
-        const result = await callGemini(slot.apiKey, GEMINI_MODEL, params.messages, params.tools ?? []);
+        const result = await callGemini(slot.apiKey, geminiModel(), params.messages, params.tools ?? []);
         this.nextGeminiIndex = (idx + 1) % geminiTotal;
         return result;
       } catch (err: any) {
@@ -204,7 +206,7 @@ export class AiAgentService {
       }
     }
 
-    // ── Cerebras + Groq tier ────────────────────────────────────────────
+    // â”€â”€ Cerebras + Groq tier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const chatTotal = this.chatKeys.length;
     for (let attempt = 0; attempt < chatTotal; attempt++) {
       const idx = (this.nextChatKeyIndex + attempt) % chatTotal;
@@ -217,7 +219,7 @@ export class AiAgentService {
       try {
         // Groq's and Cerebras's SDKs have structurally near-identical but
         // not type-identical `create` overloads (both OpenAI-compatible at
-        // the wire level) — cast at this one call site rather than
+        // the wire level) â€” cast at this one call site rather than
         // widening ChatKeySlot's type and losing per-provider safety
         // everywhere else.
         const client = slot.client as Groq;
@@ -242,7 +244,7 @@ export class AiAgentService {
 
         // A non-rate-limit error (bad model name, transient network issue,
         // etc.) on one provider shouldn't stop other configured
-        // providers/keys from being tried — only propagate once every slot
+        // providers/keys from being tried â€” only propagate once every slot
         // in this tier has been exhausted (below the loop).
         log.warn(`${slot.provider} ${slot.label} failed, trying next provider/key`, {
           message: err?.message,
@@ -257,7 +259,7 @@ export class AiAgentService {
   // =========================
   // TOOL EXECUTOR
   // =========================
-  // Split by domain so each piece stays readable — the 8 quotation tools
+  // Split by domain so each piece stays readable â€” the 8 quotation tools
   // are the only ones that need the tenant-scoping companyId threaded
   // through explicitly; the others go through the *Service's own
   // currentUser-scoped methods.
@@ -275,7 +277,7 @@ export class AiAgentService {
       // CustomerService.createCustomer expects a nested shape
       // (display_name/customer_type + contacts[]/addresses[] arrays), not
       // the flat first_name/email/city/... fields the tool schema exposes
-      // to the model — translate here rather than asking the model to
+      // to the model â€” translate here rather than asking the model to
       // reason about a nested contract.
       case 'create_customer': {
         const hasAddressFields = [
@@ -335,7 +337,7 @@ export class AiAgentService {
           data: result.data ?? null,
         });
       }
-      // Same nested-shape mismatch as create — additionally, CustomerService
+      // Same nested-shape mismatch as create â€” additionally, CustomerService
       // fully replaces the contacts/addresses arrays on update (not a
       // per-field patch), so any field the user didn't mention must be
       // filled in from the existing record first or it gets wiped.
@@ -468,7 +470,7 @@ export class AiAgentService {
     args: any,
     currentUser: CurrentUser,
   ): Promise<string | undefined> {
-    // Same identity context the Companies controller builds from the JWT —
+    // Same identity context the Companies controller builds from the JWT â€”
     // the AI agent calls companyService directly, bypassing that controller
     // entirely, so this module must derive it independently. Self-service
     // only: always the caller's own company, never another one.
@@ -525,7 +527,7 @@ export class AiAgentService {
         return JSON.stringify(result.data);
       }
 
-      // company_id and user_id are never trusted from the model/args —
+      // company_id and user_id are never trusted from the model/args â€”
       // always the authenticated caller's own identity, same self-service
       // rule as the company tools. Contact person / address / bank account
       // auto-resolve when there's only one option (or one marked
@@ -544,7 +546,7 @@ export class AiAgentService {
         const contacts = (customerResult.data as any)?.contacts ?? [];
         const addresses = (customerResult.data as any)?.addresses ?? [];
 
-        // ── Contact person ──────────────────────────────────────────────
+        // â”€â”€ Contact person â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let contactPersonId = args.contact_person_id;
         if (!contactPersonId && contacts.length === 1) {
           contactPersonId = contacts[0].id;
@@ -552,13 +554,13 @@ export class AiAgentService {
           return JSON.stringify({
             success: false,
             needsSelection: 'contact_person_id',
-            message: `This customer has multiple contacts — ask the user which one to use, then call create_quotation again with contact_person_id set: ${contacts
+            message: `This customer has multiple contacts â€” ask the user which one to use, then call create_quotation again with contact_person_id set: ${contacts
               .map((c: any) => `${c.first_name} ${c.last_name} (id ${c.id})`)
               .join(', ')}`,
           });
         }
 
-        // ── Billing / shipping address ──────────────────────────────────
+        // â”€â”€ Billing / shipping address â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let billingAddressId = args.billing_address_id;
         let shippingAddressId = args.shipping_address_id;
         if ((!billingAddressId || !shippingAddressId) && addresses.length > 1) {
@@ -570,7 +572,7 @@ export class AiAgentService {
             return JSON.stringify({
               success: false,
               needsSelection: 'billing_address_id',
-              message: `This customer has multiple addresses with none marked primary — ask the user which one to use, then call create_quotation again with billing_address_id/shipping_address_id set: ${addresses
+              message: `This customer has multiple addresses with none marked primary â€” ask the user which one to use, then call create_quotation again with billing_address_id/shipping_address_id set: ${addresses
                 .map((a: any) => `${a.label || a.address_type} in ${a.city} (id ${a.id})`)
                 .join(', ')}`,
             });
@@ -581,7 +583,7 @@ export class AiAgentService {
           shippingAddressId = shippingAddressId ?? onlyAddress?.id;
         }
 
-        // ── Bank account (payment details shown on the quotation) ───────
+        // â”€â”€ Bank account (payment details shown on the quotation) â”€â”€â”€â”€â”€â”€â”€
         let paymentDetailsSnapshot: string | undefined;
         if (args.bank_account_id !== undefined) {
           const companyResult = await this.companyService.getCompanyById(currentUser.company_id, {
@@ -605,7 +607,7 @@ export class AiAgentService {
               return JSON.stringify({
                 success: false,
                 needsSelection: 'bank_account_id',
-                message: `The company has multiple bank accounts with none marked default — ask the user which one to show as payment details, then call create_quotation again with bank_account_id set: ${bankAccounts
+                message: `The company has multiple bank accounts with none marked default â€” ask the user which one to show as payment details, then call create_quotation again with bank_account_id set: ${bankAccounts
                   .map((b: any) => `${b.bank_name} ****${String(b.account_number || '').slice(-4)} (id ${b.id})`)
                   .join(', ')}`,
               });
@@ -673,7 +675,7 @@ export class AiAgentService {
         const result = await this.quotationService.updateQuotation(
           id,
           currentUser.company_id,
-          // changed_by on the version snapshot — always the caller, never the model.
+          // changed_by on the version snapshot â€” always the caller, never the model.
           { ...updateData, user_id: currentUser.user_id },
         );
         return JSON.stringify({
@@ -683,7 +685,7 @@ export class AiAgentService {
         });
       }
 
-      // user_id is never trusted from the model — always the authenticated
+      // user_id is never trusted from the model â€” always the authenticated
       // caller, so audit trails (changed_by) can't be spoofed via chat.
       case 'send_quotation': {
         const result = await this.quotationService.sendQuotation(
@@ -726,7 +728,7 @@ export class AiAgentService {
     // Defense in depth: the model only sees permitted tools, but it could
     // still hallucinate (or be steered into) a tool name it wasn't offered.
     if (!hasToolPermission(name, currentUser.permissions)) {
-      log.warn(`Tool call rejected — missing permission for ${name}`);
+      log.warn(`Tool call rejected â€” missing permission for ${name}`);
       return JSON.stringify({
         success: false,
         message: `You do not have permission to use ${name}.`,
@@ -757,7 +759,7 @@ export class AiAgentService {
   // HISTORY
   // =========================
   // Persisted server-side per user, scoped by company_id for tenant
-  // isolation/cleanup — the client no longer sends history on each request
+  // isolation/cleanup â€” the client no longer sends history on each request
   // (it can't be trusted as-is, and it also can't span devices/tabs/browser
   // sessions), so context now carries forward automatically for the same
   // logged-in user regardless of which device or tab they chat from.
@@ -817,7 +819,7 @@ export class AiAgentService {
           ? { tools: permittedTools, tool_choice: 'auto' as const }
           : {};
 
-      // ── Build message history ────────────────────────────────────────────
+      // â”€â”€ Build message history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       const messages: Groq.Chat.ChatCompletionMessageParam[] = [
         {
           role: 'system',
@@ -833,10 +835,10 @@ export class AiAgentService {
         },
       ];
 
-      // ── First call — AI decides if it needs a tool ───────────────────────
+      // â”€â”€ First call â€” AI decides if it needs a tool â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       let completion = await this.createChatCompletion(
         {
-          model: AI_MODEL,
+          model: aiModel(),
           messages,
           ...toolParams,
           max_tokens: 1024,
@@ -847,7 +849,7 @@ export class AiAgentService {
 
       let responseMessage = completion.choices[0]?.message;
 
-      // ── Tool call loop ───────────────────────────────────────────────────
+      // â”€â”€ Tool call loop â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
       let toolIterations = 0;
       let stoppedOnIterationCap = false;
       while (responseMessage?.tool_calls && responseMessage.tool_calls.length > 0) {
@@ -895,10 +897,10 @@ export class AiAgentService {
           });
         }
 
-        // ── Follow-up call — AI forms final reply after tool result ──────
+        // â”€â”€ Follow-up call â€” AI forms final reply after tool result â”€â”€â”€â”€â”€â”€
         completion = await this.createChatCompletion(
           {
-            model: AI_MODEL,
+            model: aiModel(),
             messages,
             ...toolParams,
             max_tokens: 1024,
@@ -916,7 +918,7 @@ export class AiAgentService {
 
       // Persist this turn so it's available as context on the user's next
       // message, from any device/tab. Tool-call intermediate messages
-      // aren't stored — only the user's own message and the model's final
+      // aren't stored â€” only the user's own message and the model's final
       // reply, matching what a human reading the chat actually sees.
       await this.saveMessage(currentUser, 'user', data.message);
       await this.saveMessage(currentUser, 'assistant', reply);
@@ -966,7 +968,7 @@ export class AiAgentService {
   // =========================
   // Extracts text from an uploaded image/PDF (see document-extraction.util)
   // and routes it through the exact same chat()/tool-calling flow used for
-  // regular messages — no separate agent logic.
+  // regular messages â€” no separate agent logic.
   async chatWithDocument(data: UploadDocumentDto, currentUser: CurrentUser) {
     const log = this.appLogger.forContext('AiAgentService', 'chatWithDocument', {
       session_id: data.session_id ?? 'no-session',
@@ -993,7 +995,7 @@ export class AiAgentService {
         'For each item, search existing products for a match; only create a new product if none exists. ' +
         'Then create the quotation as a draft for review.';
 
-    // The extracted text is what actually needs to persist across turns —
+    // The extracted text is what actually needs to persist across turns â€”
     // a customer/product ambiguity the model has to ask about means the
     // *next* message relies on this same content still being in history.
     // Capped so one unusually large document can't blow the per-request
@@ -1003,7 +1005,7 @@ export class AiAgentService {
         ? `${extractedText.slice(0, MAX_PERSISTED_DOCUMENT_CHARS)}\n[...truncated]`
         : extractedText;
 
-    const persistedMessage = `${instruction}\n\n📎 [Extracted text from uploaded document "${docLabel}"]:\n---\n${cappedText}\n---`;
+    const persistedMessage = `${instruction}\n\nðŸ“Ž [Extracted text from uploaded document "${docLabel}"]:\n---\n${cappedText}\n---`;
 
     return this.chat(
       { message: persistedMessage, session_id: data.session_id },

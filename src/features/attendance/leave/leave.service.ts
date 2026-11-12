@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { AppLogger } from '../common/logger/logger.service';
+import { AppLogger } from '../../../common/logger/logger.service';
 import { CreateLeaveDto } from './dto/createLeave.dto';
 import { ReviewLeaveDto } from './dto/reviewLeave.dto';
 
@@ -32,18 +32,18 @@ export class LeaveService {
 
     const wordCount = data.reason.trim().split(/\s+/).filter(Boolean).length;
     if (wordCount < MIN_WORDS) {
-      log.warn('Leave request rejected — reason too short');
+      log.warn('Leave request rejected â€” reason too short');
       return { success: false, message: `Reason must be at least ${MIN_WORDS} words` };
     }
 
     if (new Date(data.to_date) < new Date(data.from_date)) {
-      log.warn('Leave request rejected — invalid date range');
+      log.warn('Leave request rejected â€” invalid date range');
       return { success: false, message: '"To" date cannot be before "From" date' };
     }
 
     const leaveType = data.leave_type ?? 'FULL_DAY';
     if (leaveType === 'HALF_DAY' && data.from_date !== data.to_date) {
-      log.warn('Leave request rejected — half-day leave must be a single date');
+      log.warn('Leave request rejected â€” half-day leave must be a single date');
       return { success: false, message: 'Half-day leave must have the same "From" and "To" date' };
     }
 
