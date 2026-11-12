@@ -13,8 +13,10 @@ import { RequirePermissions } from '../../common/decorators/require-permissions.
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { AuthGuard } from '../../middlewares/auth.guard';
 import { RolePermissionsService } from './role-permissions.service';
+import { InvalidatesCache } from '../../common/cache/invalidates-cache';
 
 @UseGuards(AuthGuard, PermissionsGuard)
+@InvalidatesCache('access')
 @Controller('roles')
 export class RolePermissionsController {
   constructor(

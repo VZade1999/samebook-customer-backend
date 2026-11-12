@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { AppLogger } from '../common/logger/logger.service';
+import { CacheService, companyScope } from '../common/cache/cache.service';
 import { CreateWarehouseDto } from './dto/createWarehouse.dto';
 import { UpdateWarehouseDto } from './dto/updateWarehouse.dto';
 
@@ -15,6 +16,7 @@ export class WarehousesService {
   constructor(
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
     private readonly appLogger: AppLogger,
+    private readonly cache: CacheService,
   ) {}
 
   private get Warehouses() {
@@ -33,10 +35,17 @@ export class WarehousesService {
     log.info('Fetching warehouses list');
 
     try {
-      const warehouses = await this.Warehouses.findAll({
-        where: { company_id: requester.companyId, is_active: 1 },
-        order: [['name', 'ASC']],
-      });
+      // Rarely changes; create/update/delete bump c<id>:warehouses (controller).
+      const warehouses = await this.cache.wrap(
+        { scopes: [companyScope(requester.companyId, 'warehouses')], key: 'list', ttl: 600 },
+        async () =>
+          (
+            await this.Warehouses.findAll({
+              where: { company_id: requester.companyId, is_active: 1 },
+              order: [['name', 'ASC']],
+            })
+          ).map((w: any) => w.toJSON()),
+      );
       return { success: true, message: 'Warehouses fetched successfully', data: warehouses };
     } catch (err) {
       log.error('DB error while listing warehouses', err);

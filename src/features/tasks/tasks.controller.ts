@@ -24,6 +24,8 @@ import { AppLogger } from '../../common/logger/logger.service';
 import { errorRes, failedRes, successRes } from 'src/Util/response.util';
 import { CommentDto, CreateTaskDto, FollowUpDto, UpdateTaskDto } from './dto/task.dto';
 import { TasksRequester, TasksService } from './tasks.service';
+import { CacheService, routeCacheOptions } from '../../common/cache/cache.service';
+import { InvalidatesCache } from '../../common/cache/invalidates-cache';
 
 const validate = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
 
@@ -32,12 +34,25 @@ const validate = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: tru
 @UseGuards(AuthGuard, ModuleGuard, PermissionsGuard)
 @RequireModule('tasks')
 @RequirePermissions('tasks.view')
+@InvalidatesCache('tasks')
 @Controller('tasks')
 export class TasksController {
   constructor(
     private readonly tasks: TasksService,
     private readonly appLogger: AppLogger,
+    private readonly cache: CacheService,
   ) {}
+
+  /**
+   * GET responses come from Redis until any task changes in the company
+   * (every successful write here bumps c<id>:tasks via @InvalidatesCache).
+   * The key includes the server date so "overdue" rolls over at midnight.
+   */
+  private cachedRun(req: Request, res: Response, name: string, params: unknown, fn: () => Promise<any>) {
+    const d = new Date();
+    const day = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+    return this.run(res, name, () => this.cache.wrap(routeCacheOptions(req as any, 'tasks', name, { params, day }), fn));
+  }
 
   private requester(req: Request): TasksRequester {
     const u = (req as any).user || {};
@@ -58,7 +73,7 @@ export class TasksController {
   // Static routes first — they must not be captured by '/:id'.
   @Get('/meta')
   meta(@Req() req: Request, @Res() res: Response) {
-    return this.run(res, 'meta', () => this.tasks.meta(this.requester(req)));
+    return this.cachedRun(req, res, 'meta', null, () => this.tasks.meta(this.requester(req)));
   }
 
   @Get('/summary')
@@ -68,18 +83,18 @@ export class TasksController {
 
   @Get('/epics')
   epics(@Req() req: Request, @Res() res: Response, @Query() q: any) {
-    return this.run(res, 'epics', () => this.tasks.epics(this.requester(req), q));
+    return this.cachedRun(req, res, 'epics', q, () => this.tasks.epics(this.requester(req), q));
   }
 
   @Get('/calendar')
   calendar(@Req() req: Request, @Res() res: Response, @Query() q: any) {
-    return this.run(res, 'calendar', () => this.tasks.calendar(this.requester(req), q));
+    return this.cachedRun(req, res, 'calendar', q, () => this.tasks.calendar(this.requester(req), q));
   }
 
   @Get('/overview')
   @RequirePermissions('tasks.manage')
   overview(@Req() req: Request, @Res() res: Response, @Query() q: any) {
-    return this.run(res, 'overview', () => this.tasks.overview(this.requester(req), q));
+    return this.cachedRun(req, res, 'overview', q, () => this.tasks.overview(this.requester(req), q));
   }
 
   @Get('/link-search')
@@ -89,7 +104,7 @@ export class TasksController {
 
   @Get()
   list(@Req() req: Request, @Res() res: Response, @Query() q: any) {
-    return this.run(res, 'list', () => this.tasks.list(this.requester(req), q));
+    return this.cachedRun(req, res, 'list', q, () => this.tasks.list(this.requester(req), q));
   }
 
   @Post()
@@ -101,12 +116,12 @@ export class TasksController {
 
   @Get('/:id')
   getOne(@Req() req: Request, @Res() res: Response, @Param('id', ParseIntPipe) id: number, @Query('today') today?: string) {
-    return this.run(res, 'getOne', () => this.tasks.getOne(this.requester(req), id, today));
+    return this.cachedRun(req, res, 'getOne', { id, today }, () => this.tasks.getOne(this.requester(req), id, today));
   }
 
   @Get('/:id/tree')
   tree(@Req() req: Request, @Res() res: Response, @Param('id', ParseIntPipe) id: number, @Query('today') today?: string) {
-    return this.run(res, 'tree', () => this.tasks.tree(this.requester(req), id, today));
+    return this.cachedRun(req, res, 'tree', { id, today }, () => this.tasks.tree(this.requester(req), id, today));
   }
 
   @Patch('/:id')

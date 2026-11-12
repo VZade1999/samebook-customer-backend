@@ -20,11 +20,13 @@ import { UpdateCategoryDto } from './dto/updateCategory.dto';
 import { AuthGuard } from './../middlewares/auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
+import { InvalidatesCache } from '../common/cache/invalidates-cache';
 
 // Self-service only: every route here resolves to the caller's own company
 // (req.user.company_id, set by AuthGuard from the JWT) — there is no
 // cross-company listing, creation, or deletion in this app.
 @UseGuards(AuthGuard, PermissionsGuard)
+@InvalidatesCache('categories')
 @Controller('categories')
 export class CategoriesController {
   constructor(

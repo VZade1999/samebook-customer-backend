@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { AppLogger } from '../common/logger/logger.service';
+import { CacheService, companyScope } from '../common/cache/cache.service';
 import { CreateCategoryDto } from './dto/createCategory.dto';
 import { UpdateCategoryDto } from './dto/updateCategory.dto';
 
@@ -15,6 +16,7 @@ export class CategoriesService {
   constructor(
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
     private readonly appLogger: AppLogger,
+    private readonly cache: CacheService,
   ) {}
 
   private get Categories() {
@@ -47,10 +49,17 @@ export class CategoriesService {
     log.info('Fetching categories list');
 
     try {
-      const categories = await this.Categories.findAll({
-        where: { company_id: requester.companyId, is_active: 1 },
-        order: [['name', 'ASC']],
-      });
+      // Rarely changes; create/update/delete bump c<id>:categories (controller).
+      const categories = await this.cache.wrap(
+        { scopes: [companyScope(requester.companyId, 'categories')], key: 'list', ttl: 600 },
+        async () =>
+          (
+            await this.Categories.findAll({
+              where: { company_id: requester.companyId, is_active: 1 },
+              order: [['name', 'ASC']],
+            })
+          ).map((c: any) => c.toJSON()),
+      );
       return { success: true, message: 'Categories fetched successfully', data: categories };
     } catch (err) {
       log.error('DB error while listing categories', err);

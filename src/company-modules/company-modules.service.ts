@@ -1,9 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Op } from 'sequelize';
 import { AppLogger } from '../common/logger/logger.service';
+import { CacheService, companyScope } from '../common/cache/cache.service';
 import { MODULE_CATALOG, getModuleDefinition } from './module-catalog';
 
-const CACHE_TTL_MS = 30_000;
+// Redis copy: invalidated on connect/disconnect; the TTL is a safety net
+// (e.g. an add-on whose expires_at passes). Memory copy: a few seconds.
+const CACHE_TTL_S = 300;
+const L1_MS = 5_000;
 
 export interface ModulesRequester {
   userId: number;
@@ -17,47 +21,46 @@ type ServiceResult<T = any> =
 
 @Injectable()
 export class CompanyModulesService {
-  // companyId -> enabled add-on keys. Per-process; every connect/disconnect in
-  // this process invalidates it, other processes converge within the TTL.
-  private readonly cache = new Map<number, { keys: string[]; expires: number }>();
-
   constructor(
     @Inject('DATABASE_CONNECTION') private readonly dbProvider: any,
     private readonly appLogger: AppLogger,
+    private readonly cache: CacheService,
   ) {}
 
   private get CompanyModules() {
     return this.dbProvider.db.company_modules;
   }
 
-  invalidate(companyId: number) {
-    this.cache.delete(Number(companyId));
+  /** After connect/disconnect: add-on status and (granted) role access changed. */
+  async invalidate(companyId: number) {
+    await this.cache.bump(companyScope(companyId, 'modules'), companyScope(companyId, 'access'));
   }
 
   /**
-   * Enabled ADD-ON keys for a company (core modules are implied).
+   * Enabled ADD-ON keys for a company (core modules are implied). Checked on
+   * every add-on request, so it's cached in Redis plus a few seconds in memory.
    * Never throws: on any DB problem (e.g. the table is not migrated yet) it
    * logs and returns [] so login keeps working and add-ons stay hidden.
    */
   async getEnabledModuleKeys(companyId: number): Promise<string[]> {
     const id = Number(companyId);
     if (!id) return [];
-    const hit = this.cache.get(id);
-    if (hit && hit.expires > Date.now()) return hit.keys;
-
     try {
-      const rows: any[] = await this.CompanyModules.findAll({
-        where: {
-          company_id: id,
-          enabled: 1,
-          [Op.or]: [{ expires_at: null }, { expires_at: { [Op.gt]: new Date() } }],
+      return await this.cache.wrap(
+        { scopes: [companyScope(id, 'modules')], key: 'enabled', ttl: CACHE_TTL_S, l1Ms: L1_MS },
+        async () => {
+          const rows: any[] = await this.CompanyModules.findAll({
+            where: {
+              company_id: id,
+              enabled: 1,
+              [Op.or]: [{ expires_at: null }, { expires_at: { [Op.gt]: new Date() } }],
+            },
+            attributes: ['module_key'],
+          });
+          const known = new Set(MODULE_CATALOG.filter((m) => !m.core).map((m) => m.key));
+          return rows.map((r) => r.module_key).filter((k: string) => known.has(k));
         },
-        attributes: ['module_key'],
-      });
-      const known = new Set(MODULE_CATALOG.filter((m) => !m.core).map((m) => m.key));
-      const keys = rows.map((r) => r.module_key).filter((k: string) => known.has(k));
-      this.cache.set(id, { keys, expires: Date.now() + CACHE_TTL_MS });
-      return keys;
+      );
     } catch (err) {
       this.appLogger
         .forContext('CompanyModulesService', 'getEnabledModuleKeys', { companyId: id })
@@ -207,7 +210,7 @@ export class CompanyModulesService {
       }
 
       await t.commit();
-      this.invalidate(requester.companyId);
+      await this.invalidate(requester.companyId);
       log.info('Module connected', { grantedRoles: rolesToGrant.length });
       const data = (await this.list(requester.companyId)).find((m) => m.key === key);
       return { success: true, message: `${def.name} connected`, data };
@@ -245,7 +248,7 @@ export class CompanyModulesService {
           disabled_at: new Date(),
         });
       }
-      this.invalidate(requester.companyId);
+      await this.invalidate(requester.companyId);
       log.info('Module disconnected');
       const data = (await this.list(requester.companyId)).find((m) => m.key === key);
       return { success: true, message: `${def.name} disconnected`, data };

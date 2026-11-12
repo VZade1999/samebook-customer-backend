@@ -30,6 +30,8 @@ import { errorRes } from 'src/Util/response.util';
 import { CreateFolderDto, RestoreVersionDto, UpdateFileDto, UpdateFolderDto } from './dto/drive.dto';
 import { DriveRequester, DriveService, MAX_UPLOAD_MB, UploadedDriveFile } from './drive.service';
 import { driveStorage } from './drive.storage';
+import { CacheService, routeCacheOptions } from '../../common/cache/cache.service';
+import { InvalidatesCache } from '../../common/cache/invalidates-cache';
 
 const validate = new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true });
 
@@ -63,12 +65,22 @@ const disposition = (type: 'inline' | 'attachment', filename: string) => {
 @UseGuards(AuthGuard, ModuleGuard, PermissionsGuard)
 @RequireModule('drive')
 @RequirePermissions('drive.view')
+@InvalidatesCache('drive')
 @Controller('drive')
 export class DriveController {
   constructor(
     private readonly drive: DriveService,
     private readonly appLogger: AppLogger,
+    private readonly cache: CacheService,
   ) {}
+
+  /**
+   * GET responses come from Redis until anything in this company's Drive
+   * changes (successful writes here bump c<id>:drive via @InvalidatesCache).
+   */
+  private cachedRun(req: Request, res: Response, name: string, params: unknown, fn: () => Promise<any>) {
+    return this.run(res, name, () => this.cache.wrap(routeCacheOptions(req as any, 'drive', name, params), fn));
+  }
 
   private requester(req: Request): DriveRequester {
     const u = (req as any).user || {};
@@ -95,12 +107,14 @@ export class DriveController {
   // ── Direct uploads (browser -> storage) ────────────────────────────────
 
   @Post('/uploads/presign')
+  @InvalidatesCache() // nothing visible changes until commit
   presign(@Req() req: Request, @Res() res: Response, @Body() body: any) {
     return this.run(res, 'presign', () => this.drive.presignUpload(this.requester(req), body || {}));
   }
 
   /** Local storage only: the browser PUTs raw bytes here (application/octet-stream). */
   @Put('/uploads/:token')
+  @InvalidatesCache()
   receive(@Req() req: Request, @Res() res: Response, @Param('token') token: string) {
     // If the upload is refused before its body was read, close the connection
     // (and drain what's left) so the client gets the JSON error, not a reset.
@@ -150,17 +164,17 @@ export class DriveController {
 
   @Get('/browse')
   browse(@Req() req: Request, @Res() res: Response, @Query('folder_id') folderId?: string) {
-    return this.run(res, 'browse', () => this.drive.browse(this.requester(req), folderId));
+    return this.cachedRun(req, res, 'browse', folderId ?? null, () => this.drive.browse(this.requester(req), folderId));
   }
 
   @Get('/search')
   search(@Req() req: Request, @Res() res: Response, @Query() q: any) {
-    return this.run(res, 'search', () => this.drive.search(this.requester(req), q));
+    return this.cachedRun(req, res, 'search', q, () => this.drive.search(this.requester(req), q));
   }
 
   @Get('/recent')
   recent(@Req() req: Request, @Res() res: Response, @Query('scope') scope?: string) {
-    return this.run(res, 'recent', () => this.drive.recent(this.requester(req), scope));
+    return this.cachedRun(req, res, 'recent', scope ?? null, () => this.drive.recent(this.requester(req), scope));
   }
 
   @Get('/tags')
@@ -170,7 +184,7 @@ export class DriveController {
 
   @Get('/activity')
   activity(@Req() req: Request, @Res() res: Response, @Query() q: any) {
-    return this.run(res, 'activity', () => this.drive.activity(this.requester(req), q));
+    return this.cachedRun(req, res, 'activity', q, () => this.drive.activity(this.requester(req), q));
   }
 
   @Post('/folders')
@@ -201,7 +215,7 @@ export class DriveController {
 
   @Get('/files/:id')
   getFile(@Req() req: Request, @Res() res: Response, @Param('id', ParseIntPipe) id: number) {
-    return this.run(res, 'getFile', () => this.drive.getFile(this.requester(req), id));
+    return this.cachedRun(req, res, 'getFile', id, () => this.drive.getFile(this.requester(req), id));
   }
 
   @Patch('/files/:id')

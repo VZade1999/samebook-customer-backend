@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Op } from 'sequelize';
 import { AppLogger } from '../common/logger/logger.service';
 import { CompanyModulesService } from '../company-modules/company-modules.service';
+import { CacheService, companyScope } from '../common/cache/cache.service';
 import { CORE_MODULE_KEYS } from '../company-modules/module-catalog';
 
 export interface NotifyInput {
@@ -23,6 +24,7 @@ export class NotificationsService {
     @Inject('DATABASE_CONNECTION') private readonly dbProvider: any,
     private readonly appLogger: AppLogger,
     private readonly modules: CompanyModulesService,
+    private readonly cache: CacheService,
   ) {}
 
   private get Notifications() {
@@ -53,6 +55,7 @@ export class NotificationsService {
           actor_id: input.actorId ?? null,
         })),
       );
+      await this.cache.bump(companyScope(input.companyId, 'notif'));
     } catch (err) {
       this.appLogger
         .forContext('NotificationsService', 'notify', { companyId: input.companyId, type: input.type })
@@ -111,15 +114,24 @@ export class NotificationsService {
     };
   }
 
+  /** Polled by the header bell in every tab: cached until something changes. */
   async unreadCount(userId: number, companyId: number): Promise<number> {
-    return this.Notifications.count({
-      where: {
-        user_id: userId,
-        company_id: companyId,
-        is_read: 0,
-        [Op.and]: [await this.moduleFilter(companyId)],
+    return this.cache.wrap(
+      {
+        scopes: [companyScope(companyId, 'notif'), companyScope(companyId, 'modules')],
+        key: `u${Number(userId)}:unread`,
+        ttl: 300,
       },
-    });
+      async () =>
+        this.Notifications.count({
+          where: {
+            user_id: userId,
+            company_id: companyId,
+            is_read: 0,
+            [Op.and]: [await this.moduleFilter(companyId)],
+          },
+        }),
+    );
   }
 
   async markRead(userId: number, companyId: number, id: number) {
@@ -127,6 +139,7 @@ export class NotificationsService {
       { is_read: 1, read_at: new Date() },
       { where: { id, user_id: userId, company_id: companyId, is_read: 0 } },
     );
+    if (n) await this.cache.bump(companyScope(companyId, 'notif'));
     return n;
   }
 
@@ -135,6 +148,7 @@ export class NotificationsService {
       { is_read: 1, read_at: new Date() },
       { where: { user_id: userId, company_id: companyId, is_read: 0 } },
     );
+    if (n) await this.cache.bump(companyScope(companyId, 'notif'));
     return n;
   }
 }

@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { DatabaseModule } from './Database/database.module';
+import { CacheModule } from './common/cache/cache.module';
 import { LoggerModule } from './common/logger/logger.module';
 import { CustomerModule } from './customers/customers.module';
 import { ProductModule } from './products/products.module';
@@ -47,6 +48,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     UsersModule,
     DatabaseModule,
     LoggerModule,
+    CacheModule,
     AiAgentModule,
     RolesModule,
     PermissionsModule,

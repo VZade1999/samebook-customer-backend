@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Op, QueryTypes, UniqueConstraintError } from 'sequelize';
 import { AppLogger } from '../../common/logger/logger.service';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { CacheService, companyScope } from '../../common/cache/cache.service';
 import { CommentDto, CreateTaskDto, FollowUpDto, UpdateTaskDto } from './dto/task.dto';
 import {
   ALLOWED_CHILDREN,
@@ -51,6 +52,7 @@ export class TasksService {
     @Inject('DATABASE_CONNECTION') private readonly dbProvider: any,
     private readonly appLogger: AppLogger,
     private readonly notifications: NotificationsService,
+    private readonly cache: CacheService,
   ) {}
 
   private get db() {
@@ -407,6 +409,15 @@ export class TasksService {
   /** Badge + login reminder counts for the current user. */
   async summary(r: TasksRequester, todayIn?: string) {
     const today = this.today(todayIn);
+    // Polled for the sidebar badge; any task change in the company bumps 'tasks'.
+    const data = await this.cache.wrap(
+      { scopes: [companyScope(r.companyId, 'tasks')], key: `u${Number(r.userId)}:summary:${today}`, ttl: 300 },
+      () => this.computeSummary(r, today),
+    );
+    return ok('Task summary fetched', data);
+  }
+
+  private async computeSummary(r: TasksRequester, today: string) {
     const mine = {
       company_id: r.companyId,
       is_deleted: 0,
@@ -427,7 +438,7 @@ export class TasksService {
         },
       }),
     ]);
-    return ok('Task summary fetched', { today, open, overdue, due_today: dueToday, waiting_on_others: waiting });
+    return { today, open, overdue, due_today: dueToday, waiting_on_others: waiting };
   }
 
   async getOne(r: TasksRequester, id: number, todayIn?: string) {

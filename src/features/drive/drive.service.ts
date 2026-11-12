@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
 import { AppLogger } from '../../common/logger/logger.service';
 import { NotificationsService } from '../../notifications/notifications.service';
+import { CacheService, companyScope } from '../../common/cache/cache.service';
 import { CreateFolderDto, RestoreVersionDto, UpdateFileDto, UpdateFolderDto } from './dto/drive.dto';
 import { Readable } from 'stream';
 import { DriveStorage, StoredBlob } from './drive.storage';
@@ -83,6 +84,7 @@ export class DriveService {
     private readonly appLogger: AppLogger,
     private readonly notifications: NotificationsService,
     private readonly storage: DriveStorage,
+    private readonly cache: CacheService,
   ) {}
 
   private get db() {
@@ -278,7 +280,31 @@ export class DriveService {
 
   // ─── Read endpoints ───────────────────────────────────────────────────────
 
+  // ─── Cached company-wide reads (any Drive write bumps c<id>:drive) ────────
+
+  private cached<T>(r: DriveRequester, key: string, load: () => Promise<Result<T>>): Promise<T> {
+    return this.cache.wrap({ scopes: [companyScope(r.companyId, 'drive')], key, ttl: 300 }, async () => {
+      const res = await load();
+      if (!res.success) throw new Error(res.message);
+      return res.data;
+    });
+  }
+
+  /** Stats are shared by the company; capabilities are per user, so added fresh. */
   async meta(r: DriveRequester) {
+    const shared: any = await this.cached(r, 'meta', () => this.computeMeta(r));
+    return ok('Drive', { ...shared, can: this.can(r), storage: this.storage.mode, max_upload_mb: MAX_UPLOAD_MB });
+  }
+
+  async folderTree(r: DriveRequester) {
+    return ok('Folders', await this.cached(r, 'folders', () => this.computeFolderTree(r)));
+  }
+
+  async tags(r: DriveRequester) {
+    return ok('Tags', await this.cached(r, 'tags', () => this.computeTags(r)));
+  }
+
+  private async computeMeta(r: DriveRequester) {
     const [used, counts] = await Promise.all([
       this.usedBytes(r.companyId),
       this.seq.query(
@@ -319,7 +345,7 @@ export class DriveService {
   }
 
   /** Every folder (flat) for the sidebar tree and the move picker. */
-  async folderTree(r: DriveRequester) {
+  private async computeFolderTree(r: DriveRequester) {
     const folders = await this.allFolders(r.companyId);
     const counts = await this.countsFor(
       r.companyId,
@@ -419,7 +445,7 @@ export class DriveService {
     return ok('Recent', { files: rows.map((f) => this.shapeFile(f, this.pathOf(f.folder_id, byId))) });
   }
 
-  async tags(r: DriveRequester) {
+  private async computeTags(r: DriveRequester) {
     const rows: any[] = await this.Files.findAll({
       where: { company_id: r.companyId, tags: { [Op.ne]: null } },
       attributes: ['tags'],

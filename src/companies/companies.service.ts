@@ -9,6 +9,7 @@ import { Model, ModelStatic } from 'sequelize';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { CompanyMapper } from './mappers/company.mapper';
 import { getStateCodeFromGstin } from '../common/gst-state.util';
+import { CacheService, companyScope } from '../common/cache/cache.service';
 
 // Identity context passed down from the controller (and from the AI agent's
 // tool-calling path, which invokes this service directly) for every call.
@@ -28,6 +29,7 @@ export class CompanyService {
   constructor(
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
     private readonly appLogger: AppLogger,
+    private readonly cache: CacheService,
   ) {
     this.Companies = this.dbProvider.db.companies;
     this.CompanyAddresses = this.dbProvider.db.company_addresses;
@@ -92,33 +94,42 @@ export class CompanyService {
       return { success: false, message: `Company with id ${id} not found` };
     }
 
-    let company: companies | null;
+    // Read on most billing screens, changed only by updateCompany (which bumps
+    // c<id>:company via the controller). Over-size records (big logos) are
+    // simply not stored by the cache.
+    let jsonCompany: any;
     try {
-      company = await this.Companies.findOne({
-        where: { id, is_active: 1 },
-        include: [
-          { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
-          { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
-          { model: this.CompanyMetadata, as: 'metadata', where: { is_active: 1 }, required: false },
-          { model: this.CompanyBankAccounts, as: 'bank_accounts', where: { is_active: 1 }, required: false },
-        ],
-      });
+      jsonCompany = await this.cache.wrap(
+        { scopes: [companyScope(id, 'company')], key: 'details', ttl: 600 },
+        async () => {
+          const company: companies | null = await this.Companies.findOne({
+            where: { id, is_active: 1 },
+            include: [
+              { model: this.CompanyAddresses, as: 'addresses', where: { is_active: 1 }, required: false },
+              { model: this.CompanyLocations, as: 'locations', where: { is_active: 1 }, required: false },
+              { model: this.CompanyMetadata, as: 'metadata', where: { is_active: 1 }, required: false },
+              { model: this.CompanyBankAccounts, as: 'bank_accounts', where: { is_active: 1 }, required: false },
+            ],
+          });
+          if (!company) return null;
+          const json = company.toJSON() as any;
+          if (json.logo && Buffer.isBuffer(json.logo)) {
+            json.logo = `data:image/png;base64,${json.logo.toString('base64')}`;
+          }
+          return json;
+        },
+      );
     } catch (err) {
       log.error('DB error while fetching company details', err);
       throw new Error('DATABASE_ERROR');
     }
 
-    if (!company) {
+    if (!jsonCompany) {
       log.warn('Company not found');
       return { success: false, message: `Company with id ${id} not found` };
     }
 
     log.info('Company details fetched successfully');
-
-    const jsonCompany = company.toJSON() as any;
-    if (jsonCompany.logo && Buffer.isBuffer(jsonCompany.logo)) {
-      jsonCompany.logo = `data:image/png;base64,${jsonCompany.logo.toString('base64')}`;
-    }
 
     return {
       success: true,

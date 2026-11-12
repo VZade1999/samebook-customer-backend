@@ -18,6 +18,7 @@ import {
   verifyRefreshToken,
 } from './jwt.util';
 import { CompanyModulesService } from '../company-modules/company-modules.service';
+import { CacheService, companyScope } from '../common/cache/cache.service';
 import {
   filterPermissionsByModules,
   withCoreModules,
@@ -46,6 +47,7 @@ export class AuthService {
     @Inject('DATABASE_CONNECTION') private dbProvider: any,
     private readonly appLogger: AppLogger,
     private readonly companyModules: CompanyModulesService,
+    private readonly cache: CacheService,
   ) {
     this.Users = this.dbProvider.db.users;
     this.UserRole = this.dbProvider.db.user_roles;
@@ -80,10 +82,21 @@ export class AuthService {
     if (!user || !user.is_active) {
       return { success: false as const, message: 'Account is inactive' };
     }
-    const { roleNames, permissionNames, modules } = await this.loadRolesAndPermissions(
-      user.id,
-      user.company_id,
+    // Cached (polled by every open tab). Login and token refresh always read
+    // fresh, so what a token actually grants never comes from this cache;
+    // role / permission / user changes and add-on connects bump 'access'.
+    const raw = await this.cache.wrap(
+      {
+        scopes: [companyScope(user.company_id, 'access'), 'g:access'],
+        key: `u${Number(user.id)}:roles`,
+        ttl: 300,
+      },
+      () => this.loadRawRolesAndPermissions(user.id),
     );
+    const enabledAddOns = await this.companyModules.getEnabledModuleKeys(user.company_id);
+    const roleNames = raw.roleNames;
+    const permissionNames = filterPermissionsByModules(raw.permissionNames, enabledAddOns);
+    const modules = withCoreModules(enabledAddOns);
     return {
       success: true as const,
       message: 'Session fetched',
