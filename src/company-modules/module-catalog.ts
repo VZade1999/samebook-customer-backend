@@ -15,8 +15,8 @@ export interface ModuleDefinition {
    * while the module is enabled for the user's company.
    */
   permissionPrefixes: string[];
-  /** Permission given to the roles the owner picks while connecting. */
-  grantPermission?: string;
+  /** Permissions given to the roles the owner picks while connecting. */
+  grantPermissions?: string[];
 }
 
 export const MODULE_CATALOG: readonly ModuleDefinition[] = [
@@ -37,7 +37,17 @@ export const MODULE_CATALOG: readonly ModuleDefinition[] = [
     core: false,
     plan: 'FREE',
     permissionPrefixes: ['attendance.', 'leave.'],
-    grantPermission: 'attendance.view',
+    grantPermissions: ['attendance.view'],
+  },
+  {
+    key: 'tasks',
+    name: 'Tasks',
+    description:
+      'Epics, goals, tasks and subtasks: assign work to colleagues, track progress and follow up so nothing is forgotten.',
+    core: false,
+    plan: 'FREE',
+    permissionPrefixes: ['tasks.'],
+    grantPermissions: ['tasks.view', 'tasks.create'],
   },
 ];
 

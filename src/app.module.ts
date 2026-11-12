@@ -19,6 +19,8 @@ import { CategoriesModule } from './categories/categories.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
 import { ProfileModule } from './profile/profile.module';
 import { AttendanceFeatureModule } from './features/attendance/attendance-feature.module';
+import { TasksFeatureModule } from './features/tasks/tasks-feature.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { DeliveryChallanModule } from './delivery-challan/delivery-challan.module';
 import { CompanyModulesModule } from './company-modules/company-modules.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
@@ -53,8 +55,10 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     CategoriesModule,
     WarehousesModule,
     ProfileModule,
+    NotificationsModule,
     // Add-on features
     AttendanceFeatureModule,
+    TasksFeatureModule,
     DeliveryChallanModule,
     CompanyModulesModule,
   ],

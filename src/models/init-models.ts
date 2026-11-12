@@ -248,6 +248,7 @@ import type {
 } from './delivery_challan_activity_logs';
 
 import { company_modules as _company_modules } from './company_modules';
+import { notifications as _notifications } from './notifications';
 
 export {
   _users as users,
@@ -346,6 +347,7 @@ export function initModels(sequelize: Sequelize) {
   const warehouses = _warehouses.initModel(sequelize);
   const ai_agent_messages = _ai_agent_messages.initModel(sequelize);
   const company_modules = _company_modules.initModel(sequelize);
+  const notifications = _notifications.initModel(sequelize);
 
 const invoice_items =
   _invoice_items.initModel(sequelize);
@@ -882,6 +884,9 @@ invoice_activity_logs.belongsTo(users, {
   company_modules.belongsTo(companies, { as: 'company', foreignKey: 'company_id' });
   company_modules.belongsTo(users, { as: 'enabled_by_user', foreignKey: 'enabled_by' });
 
+  // ─── In-app notifications ─────────────────────────────────
+  notifications.belongsTo(users, { as: 'actor', foreignKey: 'actor_id' });
+
   return {
     users: users,
     roles: roles,
@@ -918,5 +923,6 @@ invoice_activity_logs.belongsTo(users, {
     delivery_challan_items,
     delivery_challan_activity_logs,
     company_modules,
+    notifications,
   };
 }

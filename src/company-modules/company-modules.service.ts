@@ -131,7 +131,7 @@ export class CompanyModulesService {
     const roleIds = [...new Set((grantRoleIds || []).map(Number))];
     let rolesToGrant: any[] = [];
     if (roleIds.length) {
-      if (!def.grantPermission) {
+      if (!def.grantPermissions?.length) {
         return { success: false, message: 'This module has no role access to grant', status: 400 };
       }
       const roles: any[] = await this.dbProvider.db.roles.findAll({
@@ -179,20 +179,28 @@ export class CompanyModulesService {
         );
       }
 
-      if (rolesToGrant.length && def.grantPermission) {
-        const perm: any = await this.dbProvider.db.permission.findOne({
-          where: { name: def.grantPermission },
+      if (rolesToGrant.length && def.grantPermissions?.length) {
+        const perms: any[] = await this.dbProvider.db.permission.findAll({
+          where: { name: { [Op.in]: def.grantPermissions } },
           transaction: t,
         });
-        if (!perm) throw new Error(`Permission ${def.grantPermission} is missing`);
+        if (perms.length !== def.grantPermissions.length) {
+          throw new Error(`Permissions missing for module ${key} — run its SQL script`);
+        }
+        const roleIdsToGrant = rolesToGrant.map((r) => r.id);
         const already: any[] = await this.dbProvider.db.role_permissions.findAll({
-          where: { permission_id: perm.id, role_id: { [Op.in]: rolesToGrant.map((r) => r.id) } },
+          where: {
+            permission_id: { [Op.in]: perms.map((p) => p.id) },
+            role_id: { [Op.in]: roleIdsToGrant },
+          },
           transaction: t,
         });
-        const have = new Set(already.map((rp) => Number(rp.role_id)));
-        const toCreate = rolesToGrant
-          .filter((r) => !have.has(Number(r.id)))
-          .map((r) => ({ role_id: r.id, permission_id: perm.id }));
+        const have = new Set(already.map((rp) => `${rp.role_id}:${rp.permission_id}`));
+        const toCreate = roleIdsToGrant.flatMap((roleId) =>
+          perms
+            .filter((p) => !have.has(`${roleId}:${p.id}`))
+            .map((p) => ({ role_id: roleId, permission_id: p.id })),
+        );
         if (toCreate.length) {
           await this.dbProvider.db.role_permissions.bulkCreate(toCreate, { transaction: t });
         }
