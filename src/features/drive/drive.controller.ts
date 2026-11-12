@@ -207,7 +207,18 @@ export class DriveController {
       res.setHeader('Content-Disposition', disposition(asInline ? 'inline' : 'attachment', d.filename));
       res.setHeader('Content-Length', String(d.size));
       res.setHeader('X-Content-Type-Options', 'nosniff');
-      res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox");
+      if (asInline && d.mime === 'application/pdf') {
+        // The browser's built-in PDF viewer (zoom, print, Ctrl+F search) is
+        // blocked by helmet's object-src 'none' and by a CSP sandbox, so PDFs
+        // shown inline get no CSP. PDFs can't run page scripts in that viewer.
+        res.removeHeader('Content-Security-Policy');
+      } else {
+        // Everything else is locked down: no scripts, no plugins, sandboxed.
+        res.setHeader(
+          'Content-Security-Policy',
+          "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox",
+        );
+      }
       res.setHeader('Cache-Control', 'private, max-age=300');
       if (d.checksum) res.setHeader('ETag', `"${d.checksum}"`);
       d.stream.on('error', (e: any) => {
