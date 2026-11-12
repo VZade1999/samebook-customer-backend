@@ -89,6 +89,7 @@ export class RolePermissionsService {
     companyId: number,
     roleId: number,
     permissionIds: number[],
+    callerRoles: string[] = [],
   ) {
     const ctx = new LogContext(
       'RolePermissionsService',
@@ -117,14 +118,25 @@ export class RolePermissionsService {
         );
       }
 
-      // System roles are shared by every tenant, so no tenant may change
-      // their permissions. Also require ownership explicitly.
+      // Only the company that owns a role may change its permissions. System
+      // roles are visible to every tenant, so other companies stay blocked;
+      // the owning company (which created them) can manage them.
+      if (Number(role.company_id) !== Number(companyId)) {
+        throw new ForbiddenException(
+          Number(role.is_system) === 1
+            ? 'System roles can only be modified by the company that owns them'
+            : 'Role not found',
+        );
+      }
+
+      // The top role is protected from lower roles: otherwise an ADMIN could
+      // strip SUPER_ADMIN's permissions and lock the owner out.
       if (
-        Number(role.is_system) === 1 ||
-        Number(role.company_id) !== Number(companyId)
+        role.name === 'SUPER_ADMIN' &&
+        !(callerRoles || []).includes('SUPER_ADMIN')
       ) {
         throw new ForbiddenException(
-          'System roles cannot be modified',
+          'Only a SUPER_ADMIN can change the SUPER_ADMIN role',
         );
       }
 

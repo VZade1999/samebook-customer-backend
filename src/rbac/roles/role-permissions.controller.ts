@@ -48,6 +48,7 @@ export class RolePermissionsController {
       companyId,
       roleId,
       payload.permission_ids || [],
+      req.user?.roles || [],
     );
   }
 }
