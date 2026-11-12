@@ -49,6 +49,16 @@ export const MODULE_CATALOG: readonly ModuleDefinition[] = [
     permissionPrefixes: ['tasks.'],
     grantPermissions: ['tasks.view', 'tasks.create'],
   },
+  {
+    key: 'drive',
+    name: 'Drive',
+    description:
+      'A shared company drive: nested folders, files with tags and descriptions, and full version history of every change.',
+    core: false,
+    plan: 'FREE',
+    permissionPrefixes: ['drive.'],
+    grantPermissions: ['drive.view', 'drive.create', 'drive.update'],
+  },
 ];
 
 export const CORE_MODULE_KEYS: readonly string[] = MODULE_CATALOG.filter((m) => m.core).map(

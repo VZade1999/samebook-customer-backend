@@ -56,3 +56,6 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .vercel
 .env*
+
+# Drive add-on file storage (uploaded company files)
+/storage
