@@ -25,6 +25,7 @@ import { DriveFeatureModule } from './features/drive/drive-feature.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DeliveryChallanModule } from './delivery-challan/delivery-challan.module';
 import { CompanyModulesModule } from './company-modules/company-modules.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -65,6 +66,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     DriveFeatureModule,
     DeliveryChallanModule,
     CompanyModulesModule,
+    DashboardModule,
   ],
   //controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],
