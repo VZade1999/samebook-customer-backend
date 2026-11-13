@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, HttpException, Inject, Injectable } from '@nestjs/common';
 import {
   Op,
   QueryTypes,
@@ -37,6 +37,7 @@ import {
   getStateCodeFromGstin,
   getStateCodeFromName,
 } from '../common/gst-state.util';
+import { DocumentSeriesService } from '../document-series/document-series.service';
 
 @Injectable()
 export class QuotationService {
@@ -56,6 +57,7 @@ export class QuotationService {
     private dbProvider: any,
 
     private readonly appLogger: AppLogger,
+    private readonly documentSeries: DocumentSeriesService,
   ) {
     this.Quotations = this.dbProvider.db.quotations;
     this.QuotationItems = this.dbProvider.db.quotation_items;
@@ -534,6 +536,7 @@ export class QuotationService {
   private async generateQuotationNumber(
     companyId: number,
     transaction?: Transaction,
+    seriesId?: number,
   ): Promise<{
     quotationNumber: string;
     dailySequence: number;
@@ -598,6 +601,15 @@ export class QuotationService {
     );
 
     const overallSequence = Number((overallResult as any).max_overall || 0) + 1;
+
+    // The company's own numbering series, when it has one (company row locked above).
+    const issued = transaction
+      ? await this.documentSeries.issue(companyId, 'QUOTATION', transaction, seriesId)
+      : null;
+    if (issued) {
+      return { quotationNumber: issued.number, dailySequence, overallSequence };
+    }
+
     const quotationNumber = generateDocumentNumber(
       DocumentType.QUOTATION,
       companyPrefix,
@@ -1101,6 +1113,7 @@ export class QuotationService {
       const numberInfo = await this.generateQuotationNumber(
         data.company_id,
         transaction,
+        data.series_id,
       );
 
       data.quotation_number = numberInfo.quotationNumber;
@@ -1164,7 +1177,9 @@ export class QuotationService {
 
       return {
         success: false,
-        message: 'Failed to create quotation',
+        // e.g. a numbering series that was archived meanwhile
+        message:
+          error instanceof HttpException ? error.message : 'Failed to create quotation',
         data: null,
       };
     }

@@ -5,6 +5,7 @@ import { AppLogger } from '../common/logger/logger.service';
 import { DocumentType } from '../common/enums/document-type.enum';
 import { generateDocumentNumber } from '../common/utils/document-number.util';
 import { InvoiceService } from '../invoice/invoice.service';
+import { DocumentSeriesService } from '../document-series/document-series.service';
 import {
   ChallanItemDto,
   ChallanListDto,
@@ -116,6 +117,7 @@ export class DeliveryChallanService {
     private readonly dbProvider: any,
     private readonly appLogger: AppLogger,
     private readonly invoiceService: InvoiceService,
+    private readonly documentSeries: DocumentSeriesService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -236,7 +238,11 @@ export class DeliveryChallanService {
   // row locked (same approach as quotations). The unique index
   // (company_id, challan_number) is the backstop.
   // ---------------------------------------------------------------------------
-  private async generateChallanNumber(companyId: number, transaction: Transaction) {
+  private async generateChallanNumber(
+    companyId: number,
+    transaction: Transaction,
+    seriesId?: number,
+  ) {
     const company = await this.db.companies.findByPk(companyId, {
       transaction,
       lock: transaction.LOCK.UPDATE,
@@ -278,6 +284,16 @@ export class DeliveryChallanService {
       },
     );
     const overallSequence = Number((overallResult as any)?.max_overall || 0) + 1;
+
+    // The company's own numbering series, when it has one.
+    let issued: { number: string } | null;
+    try {
+      issued = await this.documentSeries.issue(companyId, 'DELIVERY_CHALLAN', transaction, seriesId);
+    } catch (error) {
+      if (error instanceof HttpException) throw new ChallanError(400, error.message);
+      throw error;
+    }
+    if (issued) return { challanNumber: issued.number, overallSequence };
 
     return {
       challanNumber: generateDocumentNumber(
@@ -1114,6 +1130,7 @@ export class DeliveryChallanService {
         const { challanNumber, overallSequence } = await this.generateChallanNumber(
           req.companyId,
           transaction,
+          body.series_id,
         );
 
         const challan = await this.Challans.create(
@@ -1444,7 +1461,12 @@ export class DeliveryChallanService {
     });
   }
 
-  async convertToInvoice(id: number, paymentDueDate: string, req: ChallanRequester) {
+  async convertToInvoice(
+    id: number,
+    paymentDueDate: string,
+    req: ChallanRequester,
+    seriesId?: number,
+  ) {
     return this.run('convertToInvoice', { companyId: req.companyId, challanId: id }, async () => {
       const challan = await this.findChallan(id, req.companyId);
       if (!challan.quotation_id) {
@@ -1486,7 +1508,7 @@ export class DeliveryChallanService {
         try {
           const result: any = await this.invoiceService.generateInvoice(
             quotationId,
-            { payment_due_date: paymentDueDate } as any,
+            { payment_due_date: paymentDueDate, series_id: seriesId } as any,
             req.userId,
             req.companyId,
           );

@@ -16,4 +16,11 @@ export class GenrateInvoice{
 
     @IsDateString()
     payment_due_date: string
+
+    // Numbering series to use; omitted = the company's default series (or the
+    // standard format when it has none).
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    series_id?: number
 }

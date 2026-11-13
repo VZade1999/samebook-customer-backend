@@ -1,11 +1,13 @@
 import { Injectable, Inject, BadRequestException } from '@nestjs/common';
-import { col, fn, Op, WhereOptions } from 'sequelize';
+import { col, fn, Op, QueryTypes, Transaction, WhereOptions } from 'sequelize';
 import { AppLogger } from '../common/logger/logger.service';
 import { InvoiceMapper } from './mapper/invoice.mapper';
 import { LogContext } from '../common/logger/logger.context';
 import { InvoiceListDto } from './dto/invoiceList.dto';
 import { invoicesAttributes, users } from 'src/models/init-models';
 import { GenrateInvoice } from './dto/genrateInvoice.dto';
+import { DocumentSeriesService } from '../document-series/document-series.service';
+import { businessDayStart, datePartsIn } from '../document-series/document-series.rules';
 
 @Injectable()
 export class InvoiceService {
@@ -15,8 +17,53 @@ export class InvoiceService {
     private db: any,
 
     private logger: AppLogger,
+    private readonly documentSeries: DocumentSeriesService,
   ) {
     this.Users = this.db.db.users;
+  }
+
+  /**
+   * Number for a new invoice, inside the caller's transaction. The company row
+   * is locked first so concurrent invoices of one company are numbered one
+   * after the other (the unique key company_id + invoice_number is the backstop).
+   * Uses the company's numbering series when it has one, else the standard
+   * INV-YYYYMMDD-NNNN (per company, India date).
+   */
+  private async nextInvoiceNumber(companyId: number, transaction: Transaction, seriesId?: number) {
+    await this.db.db.companies.findByPk(companyId, {
+      attributes: ['id'],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    const now = new Date();
+    const dayStart = businessDayStart(now);
+    const [counts]: any[] = await this.db.sequelize.query(
+      `SELECT
+         SUM(created_at >= :dayStart) AS daily_count,
+         COALESCE(MAX(overall_sequence), 0) AS max_overall
+       FROM invoices WHERE company_id = :companyId`,
+      { replacements: { companyId, dayStart }, type: QueryTypes.SELECT, transaction },
+    );
+    const dailySequence = Number(counts?.daily_count || 0) + 1;
+    const overallSequence = Number(counts?.max_overall || 0) + 1;
+
+    const issued = await this.documentSeries.issue(companyId, 'INVOICE', transaction, seriesId);
+    if (issued) return { invoiceNumber: issued.number, dailySequence, overallSequence };
+
+    const p = datePartsIn(now);
+    const datePart = `${p.y}${String(p.m).padStart(2, '0')}${String(p.d).padStart(2, '0')}`;
+    // Skip numbers that already exist (e.g. invoices deleted and re-made the same day).
+    for (let seq = dailySequence; seq < dailySequence + 1000; seq++) {
+      const invoiceNumber = `INV-${datePart}-${String(seq).padStart(4, '0')}`;
+      const taken = await this.db.db.invoices.findOne({
+        where: { company_id: companyId, invoice_number: invoiceNumber },
+        attributes: ['id'],
+        transaction,
+      });
+      if (!taken) return { invoiceNumber, dailySequence: seq, overallSequence };
+    }
+    throw new BadRequestException('Could not find a free invoice number for today');
   }
 
   private buildSearchFilters(
@@ -131,30 +178,9 @@ export class InvoiceService {
         throw new BadRequestException('Invoice already generated');
       }
 
-      const today = new Date();
+      const { invoiceNumber, dailySequence, overallSequence } =
+        await this.nextInvoiceNumber(companyId, transaction, body?.series_id);
 
-      const datePart =
-        today.getFullYear().toString() +
-        String(today.getMonth() + 1).padStart(2, '0') +
-        String(today.getDate()).padStart(2, '0');
-
-      const count = await this.db.db.invoices.count();
-
-      const overallSequence = count + 1;
-
-      const dailySequence =
-        (await this.db.db.invoices.count({
-          where: {
-            created_at: {
-              [Op.gte]: new Date(today.setHours(0, 0, 0, 0)),
-            },
-          },
-        })) + 1;
-
-      const invoiceNumber = `INV-${datePart}-${String(dailySequence).padStart(
-        4,
-        '0',
-      )}`;
       const normalizeJson = (value: any) => {
         try {
           return typeof value === 'string' ? JSON.parse(value) : value;

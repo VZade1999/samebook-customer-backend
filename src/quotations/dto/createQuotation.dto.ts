@@ -46,6 +46,12 @@ shipping_address_id?: number;
   @Type(() => Number)
   user_id!: number;
 
+  // Numbering series; omitted = the company's default (or the standard format).
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  series_id?: number;
+
   @IsOptional()
   @IsDateString()
   quotation_date?: string;

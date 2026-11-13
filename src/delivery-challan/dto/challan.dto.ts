@@ -163,6 +163,13 @@ export class CreateChallanDto {
   @ValidateNested({ each: true })
   @Type(() => ChallanItemDto)
   items: ChallanItemDto[];
+
+  // Numbering series; omitted = the company's default (or the standard format).
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  series_id?: number;
 }
 
 // Same shape as create, every field optional. Items are replaced only when
@@ -304,4 +311,11 @@ export class CancelChallanDto {
 export class ConvertChallanDto {
   @IsDateString()
   payment_due_date: string;
+
+  // Invoice numbering series; omitted = the company's default.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  series_id?: number;
 }

@@ -190,7 +190,12 @@ export class DeliveryChallanController {
     @Body(bodyPipe) body: ConvertChallanDto,
   ) {
     return this.handle(req, res, 'convert', () =>
-      this.challanService.convertToInvoice(id, body.payment_due_date, this.requester(req)),
+      this.challanService.convertToInvoice(
+        id,
+        body.payment_due_date,
+        this.requester(req),
+        body.series_id,
+      ),
     );
   }
 
