@@ -175,7 +175,9 @@ export class AuthService {
 
     if (!user) {
       log.warn('Login failed — user not found');
-      return { success: false, message: 'User not registed with this Email address' };
+      // Same message as a wrong password, so the login form can't be used to
+      // find out which email addresses have accounts.
+      return { success: false, message: 'Invalid email or password' };
     }
 
     const logU = log.enrich({ userId: user.id });
