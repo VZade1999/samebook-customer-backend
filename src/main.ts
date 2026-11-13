@@ -26,20 +26,32 @@ async function bootstrap() {
   // per-route override on top of its default body parsing.
   app.use(json({ limit: '15mb' }));
 
+  const appCors: cors.CorsOptions = {
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://samebook-frontend-dev.vercel.app',           // ✅ production (no trailing slash)
+      'https://samebook-frontend-dev-git-main-vzade1999s-projects.vercel.app', // ✅ no trailing slash
+      'https://samebook-frontend-7509vwpkg-vzade1999s-projects.vercel.app',
+    ],
+    allowedHeaders: ConstantsService.CORS.ALLOWED_HEADERS,
+    exposedHeaders: ConstantsService.CORS.EXPOSED_HEADERS,
+    methods: ConstantsService.CORS.METHODS,
+    credentials: true,
+  };
+  // CRM lead intake is public: customers' website forms on any domain post
+  // leads to it. No cookies are involved, so any origin is fine there.
+  const intakeCors: cors.CorsOptions = {
+    origin: true,
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Accept'],
+    credentials: false,
+    maxAge: 86400,
+  };
   app.use(
-    cors({
-      origin: [
-        'http://localhost:5173',
-        'http://localhost:3000',
-        'https://samebook-frontend-dev.vercel.app',           // ✅ production (no trailing slash)
-        'https://samebook-frontend-dev-git-main-vzade1999s-projects.vercel.app', // ✅ no trailing slash
-        'https://samebook-frontend-7509vwpkg-vzade1999s-projects.vercel.app',
-      ],
-      allowedHeaders: ConstantsService.CORS.ALLOWED_HEADERS,
-      exposedHeaders: ConstantsService.CORS.EXPOSED_HEADERS,
-      methods: ConstantsService.CORS.METHODS,
-      credentials: true,
-    }),
+    cors((req: any, cb: (err: Error | null, options?: cors.CorsOptions) => void) =>
+      cb(null, /\/crm\/intake\//.test(String(req.originalUrl || req.url || '')) ? intakeCors : appCors),
+    ),
   );
 
   app.use(cookieParser());

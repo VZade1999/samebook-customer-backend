@@ -8,6 +8,13 @@ import { MODULE_CATALOG, getModuleDefinition } from './module-catalog';
 // (e.g. an add-on whose expires_at passes). Memory copy: a few seconds.
 const CACHE_TTL_S = 300;
 const L1_MS = 5_000;
+// The cached list is keyed by the add-on catalog, so code with a different
+// catalog (e.g. old and new versions side by side during a deploy) never reads
+// a list the other computed — the old one drops add-ons it doesn't know.
+const CATALOG_SIG = MODULE_CATALOG.filter((m) => !m.core)
+  .map((m) => m.key)
+  .sort()
+  .join('.');
 
 export interface ModulesRequester {
   userId: number;
@@ -47,7 +54,7 @@ export class CompanyModulesService {
     if (!id) return [];
     try {
       return await this.cache.wrap(
-        { scopes: [companyScope(id, 'modules')], key: 'enabled', ttl: CACHE_TTL_S, l1Ms: L1_MS },
+        { scopes: [companyScope(id, 'modules')], key: `enabled:${CATALOG_SIG}`, ttl: CACHE_TTL_S, l1Ms: L1_MS },
         async () => {
           const rows: any[] = await this.CompanyModules.findAll({
             where: {

@@ -22,6 +22,7 @@ import { ProfileModule } from './profile/profile.module';
 import { AttendanceFeatureModule } from './features/attendance/attendance-feature.module';
 import { TasksFeatureModule } from './features/tasks/tasks-feature.module';
 import { DriveFeatureModule } from './features/drive/drive-feature.module';
+import { CrmFeatureModule } from './features/crm/crm-feature.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { DeliveryChallanModule } from './delivery-challan/delivery-challan.module';
 import { CompanyModulesModule } from './company-modules/company-modules.module';
@@ -64,6 +65,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     AttendanceFeatureModule,
     TasksFeatureModule,
     DriveFeatureModule,
+    CrmFeatureModule,
     DeliveryChallanModule,
     CompanyModulesModule,
     DashboardModule,

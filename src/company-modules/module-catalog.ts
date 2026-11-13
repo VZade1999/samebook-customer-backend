@@ -59,6 +59,16 @@ export const MODULE_CATALOG: readonly ModuleDefinition[] = [
     permissionPrefixes: ['drive.'],
     grantPermissions: ['drive.view', 'drive.create', 'drive.update'],
   },
+  {
+    key: 'crm',
+    name: 'CRM',
+    description:
+      'Leads and a sales pipeline with follow-ups: enquiries from IndiaMART and your website arrive automatically, and a lead becomes a customer and a quotation in one click.',
+    core: false,
+    plan: 'FREE',
+    permissionPrefixes: ['crm.'],
+    grantPermissions: ['crm.view', 'crm.create'],
+  },
 ];
 
 export const CORE_MODULE_KEYS: readonly string[] = MODULE_CATALOG.filter((m) => m.core).map(
