@@ -38,6 +38,26 @@ import {
   getStateCodeFromName,
 } from '../common/gst-state.util';
 import { DocumentSeriesService } from '../document-series/document-series.service';
+import { addDays, parseTz, todayIn } from '../dashboard/dashboard.rules';
+import {
+  APPROVED_STATUSES,
+  EXPIRING_DAYS,
+  LIVE_SQL,
+  ListFilter,
+  OPEN_STAGES,
+  QUOTE_DATE_SQL,
+  STAGE_SQL,
+  Sort,
+  buildSummary,
+  closeBlocker,
+  closeReasonLabel,
+  parseClose,
+  parseListFilter,
+  parseSort,
+  reopenBlocker,
+  reopenStatus,
+  summaryWindow,
+} from './quotation-insights.rules';
 
 @Injectable()
 export class QuotationService {
@@ -256,6 +276,144 @@ export class QuotationService {
     }
 
     return conditions.length > 0 ? { [Op.and]: conditions } : {};
+  }
+
+  // ── Quotation page list: live rows, stage filters, sort ──────────────────
+  /** Soft-deleted quotations and other document types never show. */
+  private liveConditions(): WhereOptions<quotationsAttributes>[] {
+    return [
+      { [Op.or]: [{ status: { [Op.ne]: 'DELETED' } }, { status: null }] },
+      { [Op.or]: [{ document_type: 'QT' }, { document_type: null }] },
+    ] as any;
+  }
+
+  /** Mirrors STAGE_SQL in quotation-insights.rules.ts. */
+  private stageConditions(filter: ListFilter, today: string): WhereOptions<quotationsAttributes>[] {
+    const notInvoiced: any = { [Op.or]: [{ has_invoice: false }, { has_invoice: null }] };
+    const draft: any = { [Op.or]: [{ status: { [Op.in]: ['DRAFT', ''] } }, { status: null }] };
+    const open: any = {
+      [Op.or]: [{ status: { [Op.in]: ['DRAFT', '', 'SENT', ...APPROVED_STATUSES] } }, { status: null }],
+    };
+    switch (filter) {
+      case 'INVOICED':
+        return [{ has_invoice: true } as any];
+      case 'DRAFT':
+        return [notInvoiced, draft];
+      case 'APPROVED':
+        return [notInvoiced, { status: { [Op.in]: APPROVED_STATUSES } } as any];
+      case 'EXPIRING':
+        return [notInvoiced, open, { validity_date: { [Op.between]: [today, addDays(today, EXPIRING_DAYS)] } } as any];
+      case 'LAPSED':
+        return [notInvoiced, open, { validity_date: { [Op.lt]: today } } as any];
+      default:
+        // SENT, REJECTED, EXPIRED
+        return [notInvoiced, { status: filter } as any];
+    }
+  }
+
+  private listOrder(sort: Sort, filter: ListFilter | null): any[] {
+    // The attention views read best by date unless a sort was picked.
+    if (sort === 'newest' && filter === 'EXPIRING') return [['validity_date', 'ASC'], ['grand_total', 'DESC']];
+    if (sort === 'newest' && filter === 'LAPSED') return [['validity_date', 'DESC'], ['id', 'DESC']];
+    switch (sort) {
+      case 'oldest':
+        return [['created_at', 'ASC'], ['id', 'ASC']];
+      case 'value_high':
+        return [['grand_total', 'DESC'], ['id', 'DESC']];
+      case 'value_low':
+        return [['grand_total', 'ASC'], ['id', 'DESC']];
+      default:
+        return [['created_at', 'DESC'], ['id', 'DESC']];
+    }
+  }
+
+  /**
+   * Figures for the quotation page: stage totals, the open pipeline, what is
+   * about to expire, the last six months and the biggest customers. Computed
+   * live in SQL (billing data is never cached), in the caller's time zone.
+   */
+  async getSummary(companyId: number, tzRaw: unknown): Promise<IServiceResponse> {
+    const log = this.getLog('getSummary', { companyId });
+    try {
+      const tz = parseTz(tzRaw);
+      const today = todayIn(new Date(), tz);
+      const { from, soon, prevFrom, prevTo } = summaryWindow(today);
+      const replacements = { c: companyId, tz, today, soon, from, prevFrom, prevTo };
+      const rows = (sql: string): Promise<any[]> =>
+        this.dbProvider.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+      const openList = OPEN_STAGES.map((s) => `'${s}'`).join(', ');
+
+      const [stageRows, monthRows, expiringRows, customerRows, prevRows, closedRows] = await Promise.all([
+        rows(`
+          SELECT stage, COUNT(*) AS n, COALESCE(SUM(v), 0) AS v,
+                 COALESCE(SUM(is_open AND vd < :today), 0) AS lapsed_n,
+                 COALESCE(SUM(CASE WHEN is_open AND vd < :today THEN v END), 0) AS lapsed_v,
+                 COALESCE(SUM(is_open AND vd BETWEEN :today AND :soon), 0) AS soon_n,
+                 COALESCE(SUM(CASE WHEN is_open AND vd BETWEEN :today AND :soon THEN v END), 0) AS soon_v,
+                 COALESCE(SUM(stage IN ('sent', 'approved') AND (vd IS NULL OR vd >= :today)), 0) AS pipe_n,
+                 COALESCE(SUM(CASE WHEN stage IN ('sent', 'approved') AND (vd IS NULL OR vd >= :today) THEN v END), 0) AS pipe_v
+          FROM (
+            SELECT ${STAGE_SQL} AS stage, COALESCE(q.grand_total, 0) AS v, q.validity_date AS vd,
+                   ${STAGE_SQL} IN (${openList}) AS is_open
+            FROM quotations q
+            WHERE q.company_id = :c AND ${LIVE_SQL}
+          ) x
+          GROUP BY stage`),
+        rows(`
+          SELECT DATE_FORMAT(d, '%Y-%m') AS m, COUNT(*) AS n, COALESCE(SUM(v), 0) AS v,
+                 COALESCE(SUM(stage = 'invoiced'), 0) AS inv_n,
+                 COALESCE(SUM(CASE WHEN stage = 'invoiced' THEN v END), 0) AS inv_v
+          FROM (
+            SELECT ${QUOTE_DATE_SQL} AS d, COALESCE(q.grand_total, 0) AS v, ${STAGE_SQL} AS stage
+            FROM quotations q
+            WHERE q.company_id = :c AND ${LIVE_SQL}
+          ) x
+          WHERE d BETWEEN :from AND :today
+          GROUP BY m`),
+        rows(`
+          SELECT q.id, q.quotation_number, q.customer_name,
+                 DATE_FORMAT(q.validity_date, '%Y-%m-%d') AS validity_date,
+                 q.grand_total, ${STAGE_SQL} AS stage
+          FROM quotations q
+          WHERE q.company_id = :c AND ${LIVE_SQL}
+            AND ${STAGE_SQL} IN (${openList})
+            AND q.validity_date BETWEEN :today AND :soon
+          ORDER BY q.validity_date ASC, q.grand_total DESC
+          LIMIT 6`),
+        rows(`
+          SELECT MAX(q.customer_id) AS id, MAX(q.customer_name) AS name, COUNT(*) AS n,
+                 COALESCE(SUM(q.grand_total), 0) AS v,
+                 COALESCE(SUM(CASE WHEN ${STAGE_SQL} = 'invoiced' THEN q.grand_total END), 0) AS won
+          FROM quotations q
+          WHERE q.company_id = :c AND ${LIVE_SQL}
+          GROUP BY COALESCE(CAST(q.customer_id AS CHAR), q.customer_name)
+          ORDER BY v DESC
+          LIMIT 5`),
+        rows(`
+          SELECT COUNT(*) AS n, COALESCE(SUM(v), 0) AS v
+          FROM (
+            SELECT ${QUOTE_DATE_SQL} AS d, COALESCE(q.grand_total, 0) AS v
+            FROM quotations q
+            WHERE q.company_id = :c AND ${LIVE_SQL}
+          ) x
+          WHERE d BETWEEN :prevFrom AND :prevTo`),
+        rows(`
+          SELECT q.status AS outcome, q.close_reason AS reason, COUNT(*) AS n, COALESCE(SUM(q.grand_total), 0) AS v
+          FROM quotations q
+          WHERE q.company_id = :c AND ${LIVE_SQL}
+            AND q.status IN ('REJECTED', 'EXPIRED') AND COALESCE(q.has_invoice, 0) = 0
+          GROUP BY q.status, q.close_reason`),
+      ]);
+
+      return {
+        success: true,
+        message: 'Quotation summary',
+        data: buildSummary({ today, prevToDate: prevRows[0], stageRows, monthRows, expiringRows, customerRows, closedRows }),
+      };
+    } catch (error) {
+      log.error('Failed to build the quotation summary', error as Error);
+      return { success: false, message: 'Failed to load the quotation summary', data: null };
+    }
   }
 
   private buildQuotationIncludeRelations(): Includeable[] {
@@ -765,20 +923,30 @@ export class QuotationService {
       const offset = (page - 1) * limit;
 
       // =========================================
-      // SEARCH FILTERS
+      // FILTERS: live rows only (deleted ones are gone), an optional
+      // stage / attention view, and the search box.
       // =========================================
+
+      const today = todayIn(new Date(), parseTz(query.tz));
+      const filter = parseListFilter(query.status);
+      const sort = parseSort(query.sort);
+      const search = this.buildSearchFilters({ search: query.search } as QuotationsListDto);
 
       const whereClause: any = {
         company_id: currentUser.company_id,
-
-        ...this.buildSearchFilters(query),
+        [Op.and]: [
+          ...this.liveConditions(),
+          ...(filter ? this.stageConditions(filter, today) : []),
+          ...(Object.keys(search).length || Object.getOwnPropertySymbols(search).length ? [search] : []),
+        ],
       };
 
       log.debug('Executing quotation query', {
         page,
         limit,
         offset,
-        whereClause,
+        filter,
+        sort,
       });
 
       // =========================================
@@ -803,6 +971,7 @@ export class QuotationService {
 
           where: {
             company_id: currentUser.company_id,
+            [Op.and]: this.liveConditions(),
           },
 
           group: ['status'],
@@ -816,7 +985,7 @@ export class QuotationService {
 
           distinct: true,
 
-          order: [['created_at', 'DESC']],
+          order: this.listOrder(sort, filter),
 
           limit,
 
@@ -1536,25 +1705,47 @@ export class QuotationService {
         };
       }
 
-      const timeline = await this.QuotationVersions.findAll({
-        where: {
+      // The activity log (created, edited, sent, approved, closed, reopened…).
+      // Edits store whole quotation copies, so the values are only read for
+      // close / reopen, where they hold the reason and the customer's remark.
+      const rows: any[] = await this.dbProvider.sequelize.query(
+        `SELECT l.id, l.action, l.changed_by, l.created_at,
+                CASE WHEN l.action IN ('REJECTED', 'EXPIRED', 'REOPENED') THEN l.new_value END AS detail,
+                u.first_name, u.last_name, u.email
+         FROM quotation_activity_logs l
+         LEFT JOIN users u ON u.id = l.changed_by
+         WHERE l.quotation_id = :id
+         ORDER BY l.created_at DESC, l.id DESC
+         LIMIT 200`,
+        { replacements: { id }, type: QueryTypes.SELECT },
+      );
+      const parse = (v: unknown) => {
+        if (v === null || v === undefined || typeof v !== 'string') return v ?? null;
+        try {
+          return JSON.parse(v);
+        } catch {
+          return null;
+        }
+      };
+      const timeline = rows.map((r) => {
+        const detail = parse(r.detail);
+        return {
+          id: Number(r.id),
           quotation_id: id,
-        },
-        attributes: [
-          'id',
-          'version_number',
-          'action_type',
-          'changed_by',
-          'created_at',
-        ],
-        include: [
-          {
-            model: this.Users,
-            as: 'changed_by_user',
-            attributes: ['id', 'first_name', 'last_name', 'email'],
-          },
-        ],
-        order: [['created_at', 'DESC']],
+          action_type: r.action,
+          changed_by: r.changed_by,
+          created_at: r.created_at,
+          changed_by_user: r.changed_by ? { id: r.changed_by, first_name: r.first_name, last_name: r.last_name, email: r.email } : null,
+          detail: detail
+            ? {
+                status: detail.status ?? null,
+                previous_status: detail.previous_status ?? null,
+                reason: detail.reason ?? null,
+                reason_label: detail.reason_label ?? closeReasonLabel(detail.status, detail.reason),
+                remark: detail.remark ?? null,
+              }
+            : null,
+        };
       });
 
       return {
@@ -1779,6 +1970,168 @@ export class QuotationService {
         message: 'Failed to approve quotation',
         data: null,
       };
+    }
+  }
+
+  /**
+   * Closes an open quotation as REJECTED (the customer said no) or EXPIRED
+   * (no reply / the validity ran out), with a reason and the customer's
+   * feedback. Nothing is deleted: the history stays and it can be reopened.
+   */
+  async closeQuotation(
+    id: number,
+    companyId: number,
+    userId: number,
+    body: { outcome?: unknown; reason?: unknown; remark?: unknown },
+  ): Promise<IServiceResponse> {
+    const log = this.getLog('closeQuotation', { quotationId: id, companyId });
+    const parsed = parseClose(body || {});
+    if (!parsed.ok) return { success: false, message: parsed.message, data: null };
+
+    const transaction = await this.dbProvider.sequelize.transaction();
+    try {
+      const quotation = await this.Quotations.findOne({
+        where: { id, company_id: companyId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!quotation) {
+        await transaction.rollback();
+        return { success: false, message: 'Quotation not found', data: null };
+      }
+      const blocked = closeBlocker(quotation);
+      if (blocked) {
+        await transaction.rollback();
+        return { success: false, message: blocked, data: null };
+      }
+
+      const before = quotation.toJSON();
+      const label = closeReasonLabel(parsed.outcome, parsed.reason);
+      const verb = parsed.outcome === 'REJECTED' ? 'Rejected' : 'Expired';
+      const versionNumber = Number(quotation.version_number || 1);
+      await this.QuotationVersions.create(
+        {
+          quotation_id: quotation.id,
+          version_number: versionNumber,
+          quotation_snapshot: before,
+          // The versions table has no EXPIRED action; the reason says it.
+          action_type: parsed.outcome === 'REJECTED' ? 'REJECTED' : 'UPDATED',
+          change_reason: `${verb}: ${label}${parsed.remark ? ` — ${parsed.remark}` : ''}`,
+          changed_by: userId,
+        },
+        { transaction },
+      );
+      await quotation.update(
+        {
+          status: parsed.outcome,
+          close_reason: parsed.reason,
+          close_remark: parsed.remark,
+          closed_at: new Date(),
+          closed_by: userId,
+          version_number: versionNumber + 1,
+          updated_by: userId,
+        },
+        { transaction },
+      );
+      await this.createActivityLog(
+        quotation.id,
+        parsed.outcome,
+        { status: before.status ?? '' },
+        { status: parsed.outcome, previous_status: before.status ?? '', reason: parsed.reason, reason_label: label, remark: parsed.remark },
+        userId,
+        transaction,
+      );
+      await transaction.commit();
+      log.info('Quotation closed', { outcome: parsed.outcome, reason: parsed.reason });
+
+      return {
+        success: true,
+        message: `Quotation closed as ${verb.toLowerCase()}`,
+        data: await this.fetchQuotationById(id),
+      };
+    } catch (error: unknown) {
+      await transaction.rollback();
+      log.error('Failed to close quotation', error as Error);
+      return { success: false, message: 'Failed to close the quotation', data: null };
+    }
+  }
+
+  /** Undoes a close: back to the open status it had (draft, sent or approved). */
+  async reopenQuotation(id: number, companyId: number, userId: number): Promise<IServiceResponse> {
+    const log = this.getLog('reopenQuotation', { quotationId: id, companyId });
+    const transaction = await this.dbProvider.sequelize.transaction();
+    try {
+      const quotation = await this.Quotations.findOne({
+        where: { id, company_id: companyId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!quotation) {
+        await transaction.rollback();
+        return { success: false, message: 'Quotation not found', data: null };
+      }
+      const blocked = reopenBlocker(quotation);
+      if (blocked) {
+        await transaction.rollback();
+        return { success: false, message: blocked, data: null };
+      }
+
+      // The status before the last close, as recorded when it was closed.
+      const lastClose: any = await this.QuotationActivityLogs.findOne({
+        where: { quotation_id: id, action: { [Op.in]: ['REJECTED', 'EXPIRED'] } },
+        order: [['id', 'DESC']],
+        transaction,
+      });
+      const recorded = typeof lastClose?.new_value === 'string' ? (() => {
+        try {
+          return JSON.parse(lastClose.new_value);
+        } catch {
+          return null;
+        }
+      })() : lastClose?.new_value;
+      const status = reopenStatus(recorded?.previous_status);
+
+      const before = quotation.toJSON();
+      const versionNumber = Number(quotation.version_number || 1);
+      await this.QuotationVersions.create(
+        {
+          quotation_id: quotation.id,
+          version_number: versionNumber,
+          quotation_snapshot: before,
+          action_type: 'UPDATED',
+          change_reason: `Reopened (was ${String(before.status).toLowerCase()})`,
+          changed_by: userId,
+        },
+        { transaction },
+      );
+      await quotation.update(
+        {
+          status,
+          close_reason: null,
+          close_remark: null,
+          closed_at: null,
+          closed_by: null,
+          version_number: versionNumber + 1,
+          updated_by: userId,
+        },
+        { transaction },
+      );
+      await this.createActivityLog(
+        quotation.id,
+        'REOPENED',
+        { status: before.status, reason: before.close_reason, remark: before.close_remark },
+        { status },
+        userId,
+        transaction,
+      );
+      await transaction.commit();
+      log.info('Quotation reopened', { status });
+
+      return { success: true, message: 'Quotation reopened', data: await this.fetchQuotationById(id) };
+    } catch (error: unknown) {
+      await transaction.rollback();
+      log.error('Failed to reopen quotation', error as Error);
+      return { success: false, message: 'Failed to reopen the quotation', data: null };
     }
   }
 

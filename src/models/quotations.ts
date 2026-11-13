@@ -86,6 +86,11 @@ export interface quotationsAttributes {
   daily_sequence?: number;
   overall_sequence?: number;
   has_invoice?: boolean;
+  // Set when the quotation is closed as REJECTED / EXPIRED (cleared on reopen).
+  close_reason?: string | null;
+  close_remark?: string | null;
+  closed_at?: Date | null;
+  closed_by?: number | null;
 }
 
 export type quotationsPk = 'id';
@@ -134,7 +139,11 @@ export type quotationsOptionalAttributes =
   | 'document_type'
   | 'daily_sequence'
   | 'overall_sequence'
-  | 'has_invoice';
+  | 'has_invoice'
+  | 'close_reason'
+  | 'close_remark'
+  | 'closed_at'
+  | 'closed_by';
 
 export type quotationsCreationAttributes = Optional<
   quotationsAttributes,
@@ -227,6 +236,10 @@ export class quotations
   daily_sequence?: number;
   overall_sequence?: number;
   has_invoice?: boolean;
+  close_reason?: string | null;
+  close_remark?: string | null;
+  closed_at?: Date | null;
+  closed_by?: number | null;
   static initModel(sequelize: Sequelize.Sequelize): typeof quotations {
     return quotations.init(
       {
@@ -464,6 +477,22 @@ export class quotations
           type: DataTypes.BOOLEAN,
           allowNull: true,
           defaultValue: false,
+        },
+        close_reason: {
+          type: DataTypes.STRING(40),
+          allowNull: true,
+        },
+        close_remark: {
+          type: DataTypes.STRING(1000),
+          allowNull: true,
+        },
+        closed_at: {
+          type: DataTypes.DATE,
+          allowNull: true,
+        },
+        closed_by: {
+          type: DataTypes.BIGINT,
+          allowNull: true,
         },
       },
 

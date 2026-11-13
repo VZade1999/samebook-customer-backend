@@ -31,6 +31,8 @@ import { QuotationsListDto } from './dto/quotationsList.dto';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { AuthGuard } from 'src/middlewares/auth.guard';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
 
 @Controller('quotation')
 export class QuotationController {
@@ -78,7 +80,26 @@ export class QuotationController {
     }
   }
 
-  
+  // SUMMARY for the quotation page (stage totals, pipeline, expiring soon,
+  // last six months, top customers). Declared before '/:id'.
+  @UseGuards(AuthGuard, PermissionsGuard)
+  @RequirePermissions('quotations.view')
+  @Get('/summary')
+  async getSummary(
+    @Res() res: Response,
+    @Query('tz') tz: string,
+    @GetUser() currentUser: CurrentUser,
+  ) {
+    try {
+      const response = await this.quotationService.getSummary(currentUser.company_id, tz);
+      if (!response.success) return failedRes(res, response.message);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      this.appLogger.forContext('QuotationController', 'getSummary', {}).error('Summary failed', error);
+      return errorRes(res, error);
+    }
+  }
+
   // GET QUOTATION LIST FOR INVOICE
     @UseGuards(AuthGuard)
   @Get('/list-for-invoice')
@@ -317,6 +338,52 @@ export class QuotationController {
         return failedRes(res, response.message);
       }
 
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  // CLOSE — rejected by the customer or expired, with reason + feedback
+  @UseGuards(AuthGuard, PermissionsGuard)
+  @RequirePermissions('quotations.edit')
+  @Post('/:id/close')
+  async closeQuotation(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { outcome?: string; reason?: string; remark?: string },
+  ) {
+    try {
+      const response = await this.quotationService.closeQuotation(
+        id,
+        (req as any).user.company_id,
+        (req as any).user.user_id,
+        body,
+      );
+      if (!response.success) return failedRes(res, response.message);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  // REOPEN a closed quotation
+  @UseGuards(AuthGuard, PermissionsGuard)
+  @RequirePermissions('quotations.edit')
+  @Post('/:id/reopen')
+  async reopenQuotation(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    try {
+      const response = await this.quotationService.reopenQuotation(
+        id,
+        (req as any).user.company_id,
+        (req as any).user.user_id,
+      );
+      if (!response.success) return failedRes(res, response.message);
       return successRes(res, response.message, response.data);
     } catch (error) {
       return errorRes(res, error);

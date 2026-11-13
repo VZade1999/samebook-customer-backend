@@ -242,8 +242,10 @@ export class DashboardService {
           AND status IN ('DISPATCHED', 'DELIVERED') AND quotation_id IS NOT NULL AND invoice_id IS NULL) AS challans_awaiting_value`);
     }
     if (a.quotations) {
-      // Open pipeline: shared or approved, not yet invoiced, still valid.
-      const open = `FROM quotations q WHERE q.company_id = :c AND ${LIVE_QUOTE} AND q.status IN ('SENT', 'APPROVED')
+      // Open pipeline: shared or approved (dispatching doesn't undo that), not
+      // yet invoiced, still valid. Same rule as the quotation page summary.
+      const open = `FROM quotations q WHERE q.company_id = :c AND ${LIVE_QUOTE}
+          AND q.status IN ('SENT', 'APPROVED', 'PARTIALLY_DISPATCHED', 'FULLY_DISPATCHED')
           AND COALESCE(q.has_invoice, 0) = 0 AND (q.validity_date IS NULL OR q.validity_date >= :today)`;
       cols.push(`(SELECT COUNT(*) ${open}) AS pipeline_count`);
       cols.push(`(SELECT COALESCE(SUM(q.grand_total), 0) ${open}) AS pipeline_value`);

@@ -14,15 +14,30 @@ export class QuotationsListDto {
   @IsString()
   search?: string;
 
+  // A stage, or EXPIRING (valid for 7 more days at most) / LAPSED (validity
+  // passed without an outcome). See quotation-insights.rules.ts.
   @IsOptional()
   @IsEnum([
     'DRAFT',
     'SENT',
     'APPROVED',
+    'INVOICED',
     'REJECTED',
     'EXPIRED',
+    'EXPIRING',
+    'LAPSED',
   ])
   status?: string;
+
+  @IsOptional()
+  @IsEnum(['newest', 'oldest', 'value_high', 'value_low'])
+  sort?: string;
+
+  /** Minutes east of UTC, for "today" (defaults to India). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  tz?: number;
 
   @IsOptional()
   @IsNumber()
