@@ -7,6 +7,8 @@ export interface TokenPayload {
   email: string;
   roles: string[];
   permissions: string[];
+  /** SameBook Super Admin (platform). Platform routes still check the database. */
+  platform?: boolean;
 }
 
 function getSecret(

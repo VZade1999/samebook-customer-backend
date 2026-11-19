@@ -34,6 +34,7 @@ export class RolePermissionsController {
     return this.rolePermissionsService.getRolePermissions(
       companyId,
       roleId,
+      req.user?.user_id,
     );
   }
 
@@ -49,8 +50,8 @@ export class RolePermissionsController {
     return this.rolePermissionsService.assignPermissions(
       companyId,
       roleId,
-      payload.permission_ids || [],
-      req.user?.roles || [],
+      payload?.permission_ids ?? [],
+      req.user?.user_id,
     );
   }
 }

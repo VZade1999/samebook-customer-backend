@@ -31,6 +31,7 @@ export class AuthGuard implements CanActivate {
         email: decoded.email,
         permissions: decoded.permissions || [],
         roles: decoded.roles || [],
+        platform: !!decoded.platform,
       };
       return true;
     } catch (error) {

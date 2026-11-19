@@ -49,7 +49,8 @@ export class UserRolesController {
     return this.userRolesService.assignRoles(
       companyId,
       userId,
-      payload.role_ids || [],
+      payload?.role_ids ?? [],
+      req.user?.user_id,
     );
   }
 }

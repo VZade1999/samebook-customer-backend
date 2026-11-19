@@ -90,13 +90,14 @@ export class AuthController {
     log.info('Request received');
 
     try {
-      const { first_name, last_name, email, phone, password } = body;
+      const { first_name, last_name, email, phone, password, company_name } = body;
       const response = await this.authService.register(
         first_name,
         last_name,
         email,
         phone,
         password,
+        company_name,
       );
 
       if (!response.success) {

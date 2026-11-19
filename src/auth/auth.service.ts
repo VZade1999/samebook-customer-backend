@@ -23,6 +23,8 @@ import {
   filterPermissionsByModules,
   withCoreModules,
 } from '../company-modules/module-catalog';
+import { AccessService } from '../rbac/access.service';
+import { TenantOnboardingService } from '../rbac/tenant-onboarding.service';
 
 const COMPANY_ATTRIBUTES = [
   'id',
@@ -31,7 +33,20 @@ const COMPANY_ATTRIBUTES = [
   'primary_phone',
   'default_terms_conditions',
   'logo',
+  'status',
+  'is_active',
 ];
+
+const SUSPENDED_MESSAGE =
+  "Your company's SameBook account is suspended. Please contact SameBook support.";
+
+/** A suspended company can't sign in — except Super Admins, who must be able to fix things. */
+export const companyBlocked = (company: any, platform: boolean): string | null => {
+  if (platform || !company) return null;
+  const suspended =
+    String(company.status || '').toLowerCase() === 'suspended' || Number(company.is_active) === 0;
+  return suspended ? SUSPENDED_MESSAGE : null;
+};
 
 @Injectable()
 export class AuthService {
@@ -48,6 +63,8 @@ export class AuthService {
     private readonly appLogger: AppLogger,
     private readonly companyModules: CompanyModulesService,
     private readonly cache: CacheService,
+    private readonly access: AccessService,
+    private readonly onboarding: TenantOnboardingService,
   ) {
     this.Users = this.dbProvider.db.users;
     this.UserRole = this.dbProvider.db.user_roles;
@@ -64,12 +81,15 @@ export class AuthService {
    * agree. Module lookup never throws (fails closed for add-ons only).
    */
   private async loadRolesAndPermissions(userId: number, companyId: number) {
-    const { roleNames, permissionNames } = await this.loadRawRolesAndPermissions(userId);
+    const access = await this.access.accessOf(userId, companyId);
     const enabledAddOns = await this.companyModules.getEnabledModuleKeys(companyId);
     return {
-      roleNames,
-      permissionNames: filterPermissionsByModules(permissionNames, enabledAddOns),
+      roleNames: access.roleNames,
+      permissionNames: filterPermissionsByModules(access.permissions, enabledAddOns),
       modules: withCoreModules(enabledAddOns),
+      platform: access.platform,
+      admin: access.admin,
+      rank: access.rank,
     };
   }
 
@@ -84,15 +104,30 @@ export class AuthService {
     }
     // Cached (polled by every open tab). Login and token refresh always read
     // fresh, so what a token actually grants never comes from this cache;
-    // role / permission / user changes and add-on connects bump 'access'.
+    // role / permission / user changes, add-on connects and a company being
+    // suspended bump 'access'.
     const raw = await this.cache.wrap(
       {
         scopes: [companyScope(user.company_id, 'access'), 'g:access'],
-        key: `u${Number(user.id)}:roles`,
+        key: `u${Number(user.id)}:access:v2`,
         ttl: 300,
       },
-      () => this.loadRawRolesAndPermissions(user.id),
+      async () => {
+        const [access, company] = await Promise.all([
+          this.access.accessOf(user.id, user.company_id),
+          this.Companies.findOne({ where: { id: user.company_id }, attributes: ['id', 'status', 'is_active'] }),
+        ]);
+        return {
+          roleNames: access.roleNames,
+          permissionNames: access.permissions,
+          platform: access.platform,
+          admin: access.admin,
+          rank: access.rank,
+          blocked: companyBlocked(company, access.platform),
+        };
+      },
     );
+    if (raw.blocked) return { success: false as const, message: raw.blocked };
     const enabledAddOns = await this.companyModules.getEnabledModuleKeys(user.company_id);
     const roleNames = raw.roleNames;
     const permissionNames = filterPermissionsByModules(raw.permissionNames, enabledAddOns);
@@ -106,44 +141,14 @@ export class AuthService {
         roles: roleNames,
         permissions: permissionNames,
         modules,
+        /** SameBook Super Admin (sees the platform console). */
+        platform: raw.platform,
+        /** The company's Admin (top role). */
+        admin: raw.admin,
+        /** Highest company role level (1 = Admin … 5; 99 = none). */
+        rank: raw.rank,
       },
     };
-  }
-
-  private async loadRawRolesAndPermissions(userId: number) {
-    const userRoleRows: any[] = await this.UserRole.findAll({
-      where: { user_id: userId },
-      include: [
-        {
-          model: this.Roles,
-          as: 'role',
-          include: [
-            {
-              model: this.RolePermissions,
-              as: 'role_permissions',
-              include: [{ model: this.Permissions, as: 'permission' }],
-            },
-          ],
-        },
-      ],
-    });
-
-    const roleNames: string[] = userRoleRows
-      .map((i: any) => i.role?.name)
-      .filter(Boolean);
-
-    const permissionNames: string[] = [
-      ...new Set(
-        userRoleRows.flatMap(
-          (i: any) =>
-            i.role?.role_permissions
-              ?.map((rp: any) => rp.permission?.name)
-              .filter(Boolean) ?? [],
-        ),
-      ),
-    ];
-
-    return { roleNames, permissionNames };
   }
 
   private async persistRefreshToken(userId: number, refreshToken: string) {
@@ -206,14 +211,21 @@ export class AuthService {
     let roleNames: string[];
     let permissionNames: string[];
     let modules: string[];
+    let platform = false;
     try {
-      ({ roleNames, permissionNames, modules } = await this.loadRolesAndPermissions(
+      ({ roleNames, permissionNames, modules, platform } = await this.loadRolesAndPermissions(
         user.id,
         user.company_id,
       ));
     } catch (err) {
       logU.error('DB error while fetching roles', err);
       throw new Error('DATABASE_ERROR');
+    }
+
+    const blocked = companyBlocked(user.company, platform);
+    if (blocked) {
+      logU.warn('Login failed — company suspended');
+      return { success: false, message: blocked };
     }
 
     logU.debug('Roles resolved', {
@@ -227,6 +239,7 @@ export class AuthService {
       email: user.email,
       roles: roleNames,
       permissions: permissionNames,
+      platform,
     };
     let accessToken: string;
     let refreshToken: string;
@@ -287,12 +300,18 @@ export class AuthService {
     };
   }
 
+  /**
+   * Sign-up: every new account gets its own company (with the default roles)
+   * and is that company's Admin. Nobody joins an existing company by signing
+   * up — people are added to a company by its Admin (or a manager) instead.
+   */
   async register(
     first_name: string,
     last_name: string,
     email: string,
     phone: string,
     password: string,
+    company_name?: string,
   ) {
     const log = this.appLogger.forContext('AuthService', 'register', {
       email,
@@ -300,54 +319,31 @@ export class AuthService {
 
     log.info('Registration attempt started');
 
-    let existingUser: any;
-    try {
-      existingUser = await this.Users.findOne({ where: { email } });
-    } catch (err) {
-      log.error('DB error while checking existing email', err);
-      throw new Error('DATABASE_ERROR');
+    const companyName =
+      String(company_name || '').trim() || `${String(first_name || '').trim() || 'My'}'s Business`;
+    const result = await this.onboarding.createCompanyWithAdmin({
+      companyName,
+      admin: { first_name, last_name, email, phone, password },
+    });
+
+    if (result.success === false) {
+      log.warn(`Registration failed — ${result.message}`);
+      return {
+        success: false,
+        message: result.status === 409 ? 'Email already exists' : result.message,
+      };
     }
 
-    if (existingUser) {
-      log.warn('Registration failed — email already exists');
-      return { success: false, message: 'Email already exists' };
-    }
-
-    let hashedPassword: string;
-    try {
-      hashedPassword = await bcrypt.hash(password, 10);
-    } catch (err) {
-      log.error('bcrypt hashing failed', err);
-      throw new Error('AUTH_INTERNAL_ERROR');
-    }
-
-    let newUser: any;
-    try {
-      newUser = await this.Users.create({
-        first_name,
-        last_name,
-        email,
-        phone,
-        password: hashedPassword,
-        company_id: 1,
-      });
-    } catch (err) {
-      log.error('DB error while creating user', err);
-      throw new Error('DATABASE_ERROR');
-    }
-
-    log.enrich({ userId: newUser.id }).info('User registered successfully');
+    log.enrich({ userId: result.user.id }).info('User registered with a new company', {
+      companyId: result.company.id,
+    });
 
     return {
       success: true,
-      message: 'User created successfully',
+      message: 'Account created — you are the Admin of your new company',
       data: {
-        id: newUser.id,
-        first_name: newUser.first_name,
-        last_name: newUser.last_name,
-        email: newUser.email,
-        phone: newUser.phone,
-        company_id: newUser.company_id,
+        ...result.user,
+        company: result.company,
       },
     };
   }
@@ -402,16 +398,22 @@ export class AuthService {
         return { success: false, message: 'Account is inactive' };
       }
 
-      const { roleNames, permissionNames } = await this.loadRolesAndPermissions(
+      const { roleNames, permissionNames, platform } = await this.loadRolesAndPermissions(
         user.id,
         user.company_id,
       );
+      const blocked = companyBlocked(user.company, platform);
+      if (blocked) {
+        log.warn('Refresh rejected — company suspended', { userId: user.id });
+        return { success: false, message: blocked };
+      }
       const payload: TokenPayload = {
         userId: user.id,
         companyId: user.company_id,
         email: user.email,
         roles: roleNames,
         permissions: permissionNames,
+        platform,
       };
 
       const newAccessToken = signAccessToken(payload);

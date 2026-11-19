@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsPhoneNumber, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsPhoneNumber, IsString, MaxLength } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -20,4 +20,10 @@ export class RegisterDto {
   @IsNotEmpty()
   @IsString()
   password!: string;
+
+  /** The new company's name — every sign-up gets its own company and is its Admin. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  company_name?: string;
 }

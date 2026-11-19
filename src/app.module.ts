@@ -29,6 +29,8 @@ import { CompanyModulesModule } from './company-modules/company-modules.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DocumentSeriesModule } from './document-series/document-series.module';
 import { DocumentLinksModule } from './document-links/document-links.module';
+import { AccessModule } from './rbac/access.module';
+import { PlatformModule } from './platform/platform.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -53,6 +55,8 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     DatabaseModule,
     LoggerModule,
     CacheModule,
+    AccessModule,
+    PlatformModule,
     AiAgentModule,
     RolesModule,
     PermissionsModule,

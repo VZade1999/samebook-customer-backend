@@ -4,6 +4,11 @@ import { DataTypes, Model, Optional } from 'sequelize';
 export interface usersAttributes {
   id: number;
   company_id: number;
+  /** Manager in the same company; null = top / not set. */
+  reports_to?: number | null;
+  /** Job title, e.g. "Sales Executive". */
+  designation?: string | null;
+  department?: string | null;
   first_name?: string;
   last_name?: string;
   email: string;
@@ -36,6 +41,9 @@ export type usersId = users[usersPk];
 
 export type usersOptionalAttributes =
   | 'id'
+  | 'reports_to'
+  | 'designation'
+  | 'department'
   | 'first_name'
   | 'last_name'
   | 'phone'
@@ -71,6 +79,9 @@ export class users
 {
   id!: number;
   company_id!: number;
+  reports_to?: number | null;
+  designation?: string | null;
+  department?: string | null;
   first_name?: string;
   last_name?: string;
   email!: string;
@@ -114,6 +125,21 @@ export class users
             model: 'companies',
             key: 'id',
           },
+        },
+
+        reports_to: {
+          type: DataTypes.BIGINT,
+          allowNull: true,
+        },
+
+        designation: {
+          type: DataTypes.STRING(100),
+          allowNull: true,
+        },
+
+        department: {
+          type: DataTypes.STRING(100),
+          allowNull: true,
         },
 
         first_name: {

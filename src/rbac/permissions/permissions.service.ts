@@ -1,317 +1,170 @@
-
 import {
+  BadRequestException,
   ConflictException,
-  Injectable,
   Inject,
+  Injectable,
   NotFoundException,
 } from '@nestjs/common';
-
 import { Op } from 'sequelize';
-
 import { AppLogger } from '../../common/logger/logger.service';
 import { LogContext } from '../../common/logger/logger.context';
+import { AccessService } from '../access.service';
+import { ADMIN_LEVEL, PLATFORM_PERMISSIONS, isPlatformPermission } from '../access.rules';
 
+const shape = (p: any) => ({
+  id: Number(p.id),
+  name: p.name,
+  module_name: p.module_name ?? null,
+  description: p.description ?? null,
+  platform: isPlatformPermission(p.name),
+  created_at: p.created_at,
+});
+
+/**
+ * The master list of permissions. Companies only read it (without the
+ * platform permissions) to tick permissions on their roles; adding, renaming
+ * or removing permissions is for SameBook Super Admins (PlatformGuard).
+ */
 @Injectable()
 export class PermissionsService {
   constructor(
     @Inject('DATABASE_CONNECTION')
     private db: any,
     private logger: AppLogger,
+    private access: AccessService,
   ) {}
 
-  async listPermissions(
-    page = 1,
-    limit = 10,
-    search?: string,
-  ) {
-    const ctx = new LogContext(
-      'PermissionsService',
-      'listPermissions',
-      {
-        page,
-        limit,
-        search,
-      },
-    );
+  private visible(platform: boolean) {
+    return platform ? {} : { name: { [Op.notIn]: [...PLATFORM_PERMISSIONS] } };
+  }
 
-    try {
-      const offset = (page - 1) * limit;
+  async listPermissions(page = 1, limit = 10, search?: string, platform = false) {
+    const where: any = { ...this.visible(platform) };
+    if (search) {
+      where[Op.or] = [{ name: { [Op.like]: `%${search}%` } }, { description: { [Op.like]: `%${search}%` } }, { module_name: { [Op.like]: `%${search}%` } }];
+    }
+    const size = Math.max(1, Math.min(Number(limit) || 10, 500));
+    const p = Math.max(1, Number(page) || 1);
+    const { count, rows } = await this.db.db.permission.findAndCountAll({
+      where,
+      limit: size,
+      offset: (p - 1) * size,
+      order: [['name', 'ASC']],
+    });
+    return {
+      permissions: rows.map(shape),
+      pagination: { total: count, page: p, limit: size, pages: Math.ceil(count / size) },
+    };
+  }
 
-      const where: any = {};
+  async getPermissions(platform = false) {
+    const rows: any[] = await this.db.db.permission.findAll({ where: this.visible(platform), order: [['name', 'ASC']] });
+    return rows.map(shape);
+  }
 
-      if (search) {
-        where[Op.or] = [
-          {
-            name: {
-              [Op.like]: `%${search}%`,
-            },
-          },
-          {
-            description: {
-              [Op.like]: `%${search}%`,
-            },
-          },
-        ];
-      }
-      const { count, rows } =
-        await this.db.db.permission.findAndCountAll({
-          where,
-          limit,
-          offset,
-          order: [['name', 'ASC']],
-        });
-      return {
-        permissions: rows.map(
-          (permission: any) => ({
-            id: permission.id,
-            name: permission.name,
-            module_name: permission.module_name,
-            description:
-              permission.description,
-            created_at:
-              permission.created_at,
-          }),
-        ),
-        pagination: {
-          total: count,
-          page,
-          limit,
-          pages: Math.ceil(
-            count / limit,
-          ),
-        },
-      };
-    } catch (error) {
-      this.logger.error(
-        ctx,
-        'Error listing permissions',
-        error,
-      );
-      throw error;
+  async getPermissionById(permissionId: number, platform = false) {
+    const p = await this.db.db.permission.findOne({ where: { id: permissionId } });
+    if (!p || (!platform && isPlatformPermission(p.name))) throw new NotFoundException('Permission not found');
+    return shape(p);
+  }
+
+  /**
+   * "What each permission allows": every permission grouped by area, with the
+   * caller's company roles that give it (the Admin gives every one).
+   */
+  async catalogue(companyId: number, platform = false) {
+    const [perms, roles] = await Promise.all([
+      this.db.db.permission.findAll({ where: this.visible(platform), order: [['module_name', 'ASC'], ['name', 'ASC']] }),
+      this.db.db.roles.findAll({
+        where: { company_id: companyId, scope: 'COMPANY' },
+        include: [{ model: this.db.db.role_permissions, as: 'role_permissions' }],
+        order: [['level', 'ASC'], ['name', 'ASC']],
+      }),
+    ]);
+    const holders = (permId: number, name: string) =>
+      (roles as any[])
+        .filter((r) =>
+          isPlatformPermission(name)
+            ? false
+            : Number(r.level) === ADMIN_LEVEL || (r.role_permissions || []).some((rp: any) => Number(rp.permission_id) === permId),
+        )
+        .map((r) => ({ id: Number(r.id), name: r.name, level: Number(r.level) }));
+    const groups = new Map<string, any[]>();
+    (perms as any[]).forEach((p) => {
+      const area = isPlatformPermission(p.name) ? 'Platform' : p.module_name || String(p.name).split('.')[0];
+      const list = groups.get(area) || [];
+      list.push({ ...shape(p), roles: holders(Number(p.id), p.name) });
+      groups.set(area, list);
+    });
+    return {
+      groups: [...groups.entries()].map(([area, permissions]) => ({ area, permissions })),
+      total: (perms as any[]).length,
+      can_edit: platform,
+    };
+  }
+
+  // ── Platform only (the controller adds PlatformGuard) ───────────────────
+
+  private checkName(name: string) {
+    if (!/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/.test(name)) {
+      throw new BadRequestException('A permission name looks like "area.action", e.g. "quotations.approve"');
     }
   }
 
-  async createPermission(
-    payload: any,
-  ) {
-    const ctx = new LogContext(
-      'PermissionsService',
-      'createPermission',
-      payload,
-    );
-
+  async createPermission(payload: any) {
+    const ctx = new LogContext('PermissionsService', 'createPermission', { name: payload?.name });
+    const name = String(payload?.name || '').trim().toLowerCase();
+    this.checkName(name);
+    const existing = await this.db.db.permission.findOne({ where: { name } });
+    if (existing) throw new ConflictException('Permission already exists');
     try {
-      const existingPermission =
-        await this.db.db.permission.findOne({
-          where: {
-            name: payload.name,
-          },
-        });
-
-      if (existingPermission) {
-        throw new ConflictException(
-          'Permission already exists',
-        );
-      }
-
-      const permission =
-        await this.db.db.permission.create({
-          name: payload.name,
-          description:
-            payload.description,
-        });
-
-      return {
-        id: permission.id,
-        name: permission.name,
-        description:
-          permission.description,
-        message:
-          'Permission created successfully',
-      };
-    } catch (error) {
-      this.logger.error(
-        ctx,
-        'Error creating permission',
-        error,
-      );
-      throw error;
-    }
-  }
-
-  async updatePermission(
-    permissionId: number,
-    payload: any,
-  ) {
-    const ctx = new LogContext(
-      'PermissionsService',
-      'updatePermission',
-      {
-        permissionId,
-      },
-    );
-
-    try {
-      const permission =
-        await this.db.db.permission.findOne({
-          where: {
-            id: permissionId,
-          },
-        });
-
-      if (!permission) {
-        throw new NotFoundException(
-          'Permission not found',
-        );
-      }
-
-      await permission.update({
-        name:
-          payload.name ??
-          permission.name,
-        description:
-          payload.description ??
-          permission.description,
+      const p = await this.db.db.permission.create({
+        name,
+        module_name: String(payload?.module_name || '').trim() || null,
+        description: String(payload?.description || '').trim() || null,
+        is_active: 1,
       });
-
-      return {
-        id: permission.id,
-        name: permission.name,
-        description:
-          permission.description,
-        message:
-          'Permission updated successfully',
-      };
+      this.access.forgetCatalogue();
+      return { ...shape(p), message: 'Permission created' };
     } catch (error) {
-      this.logger.error(
-        ctx,
-        'Error updating permission',
-        error,
-      );
+      this.logger.error(ctx, 'Error creating permission', error);
       throw error;
     }
   }
 
-  async deletePermission(
-    permissionId: number,
-  ) {
-    const ctx = new LogContext(
-      'PermissionsService',
-      'deletePermission',
-      {
-        permissionId,
-      },
-    );
-
-    try {
-      const permission =
-        await this.db.db.permission.findOne({
-          where: {
-            id: permissionId,
-          },
-        });
-
-      if (!permission) {
-        throw new NotFoundException(
-          'Permission not found',
-        );
+  async updatePermission(permissionId: number, payload: any) {
+    const p = await this.db.db.permission.findOne({ where: { id: permissionId } });
+    if (!p) throw new NotFoundException('Permission not found');
+    const changes: Record<string, unknown> = {};
+    if (payload?.name !== undefined) {
+      const name = String(payload.name || '').trim().toLowerCase();
+      this.checkName(name);
+      if (name !== p.name) {
+        const clash = await this.db.db.permission.findOne({ where: { name, id: { [Op.ne]: p.id } } });
+        if (clash) throw new ConflictException('Permission already exists');
       }
-
-      await this.db.db.role_permissions.destroy(
-        {
-          where: {
-            permission_id:
-              permissionId,
-          },
-        },
-      );
-
-      await permission.destroy();
-
-      return {
-        message:
-          'Permission deleted successfully',
-      };
-    } catch (error) {
-      this.logger.error(
-        ctx,
-        'Error deleting permission',
-        error,
-      );
-      throw error;
+      changes.name = name;
     }
+    if (payload?.module_name !== undefined) changes.module_name = String(payload.module_name || '').trim() || null;
+    if (payload?.description !== undefined) changes.description = String(payload.description || '').trim() || null;
+    await p.update(changes);
+    this.access.forgetCatalogue();
+    return { ...shape(p), message: 'Permission saved' };
   }
 
-  async getPermissions() {
-    const ctx = new LogContext(
-      'PermissionsService',
-      'getPermissions',
-      {},
-    );
-
+  async deletePermission(permissionId: number) {
+    const p = await this.db.db.permission.findOne({ where: { id: permissionId } });
+    if (!p) throw new NotFoundException('Permission not found');
+    const t = await this.db.sequelize.transaction();
     try {
-      const permissions =
-        await this.db.db.permission.findAll({
-          order: [['name', 'ASC']],
-        });
-
-      return permissions.map(
-        (permission: any) => ({
-          id: permission.id,
-          name: permission.name,
-          description:
-            permission.description,
-        }),
-      );
+      await this.db.db.role_permissions.destroy({ where: { permission_id: permissionId }, transaction: t });
+      await p.destroy({ transaction: t });
+      await t.commit();
     } catch (error) {
-      this.logger.error(
-        ctx,
-        'Error fetching permissions',
-        error,
-      );
+      await t.rollback();
       throw error;
     }
-  }
-
-  async getPermissionById(
-    permissionId: number,
-  ) {
-    const ctx = new LogContext(
-      'PermissionsService',
-      'getPermissionById',
-      {
-        permissionId,
-      },
-    );
-
-    try {
-      const permission =
-        await this.db.db.permission.findOne({
-          where: {
-            id: permissionId,
-          },
-        });
-
-      if (!permission) {
-        throw new NotFoundException(
-          'Permission not found',
-        );
-      }
-
-      return {
-        id: permission.id,
-        name: permission.name,
-        description:
-          permission.description,
-      };
-    } catch (error) {
-      this.logger.error(
-        ctx,
-        'Error fetching permission',
-        error,
-      );
-      throw error;
-    }
+    this.access.forgetCatalogue();
+    return { message: 'Permission deleted' };
   }
 }
-
