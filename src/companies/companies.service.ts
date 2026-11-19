@@ -169,8 +169,13 @@ export class CompanyService {
             json.logo = `data:image/png;base64,${json.logo.toString('base64')}`;
           }
           // Only whether there is one — the image itself comes from GET /companies/signature.
-          json.has_signature =
-            (await this.Companies.count({ where: { id, signature: { [Op.ne]: null } } as any })) > 0;
+          // Never fails the details (e.g. a database not yet given the column).
+          json.has_signature = await this.Companies.count({ where: { id, signature: { [Op.ne]: null } } as any })
+            .then((n) => n > 0)
+            .catch((err) => {
+              log.warn(`Signature check skipped — ${err?.message ?? err}`);
+              return false;
+            });
           return json;
         },
       );
