@@ -18,6 +18,8 @@ export interface companiesAttributes {
   /** How the company usually sells (null = not chosen yet). Only changes defaults. */
   sales_flow?: string | null;
   logo?: Buffer;
+  /** Signature and/or stamp (PNG) printed above "Authorised Signatory"; null = none. */
+  signature?: Buffer | null;
   is_active?: number;
   created_at?: Date;
   updated_at?: Date;
@@ -40,6 +42,7 @@ export type companiesOptionalAttributes =
   | 'default_terms_conditions'
   | 'sales_flow'
   | 'logo'
+  | 'signature'
   | 'is_active'
   | 'created_at'
   | 'updated_at';
@@ -67,6 +70,7 @@ export class companies
   default_terms_conditions?: string;
   sales_flow?: string | null;
   logo?: Buffer;
+  signature?: Buffer | null;
   is_active?: number;
   created_at?: Date;
   updated_at?: Date;
@@ -143,6 +147,10 @@ export class companies
           type: DataTypes.BLOB('medium'),
           allowNull: true,
         },
+        signature: {
+          type: DataTypes.BLOB('medium'),
+          allowNull: true,
+        },
         is_active: {
           type: DataTypes.TINYINT,
           allowNull: true,
@@ -164,6 +172,9 @@ export class companies
         tableName: 'companies',
         underscored: true,
         timestamps: false,
+        // The signature image is read only where it is printed (GET /companies/signature),
+        // never with the rest of the company; a query that needs it names it in `attributes`.
+        defaultScope: { attributes: { exclude: ['signature'] } },
         indexes: [
           {
             name: 'PRIMARY',

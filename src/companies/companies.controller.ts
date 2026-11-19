@@ -59,6 +59,31 @@ export class CompanyController {
     }
   }
 
+  // The signature / stamp printed on documents: every PDF reads it, so any
+  // signed-in user of the company can; adding, changing or removing it is an editor's.
+  @Get('/signature')
+  async getSignature(@Req() req: Request, @Res() res: Response) {
+    try {
+      const response = await this.companyService.getSignature(this.getRequester(req));
+      if (!response.success) return failedRes(res, response.message, 404);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  @Put('/signature')
+  @RequirePermissions('companies.edit')
+  async setSignature(@Req() req: Request, @Res() res: Response, @Body() body: { signature?: unknown }) {
+    try {
+      const response = await this.companyService.setSignature(this.getRequester(req), body?.signature);
+      if (!response.success) return failedRes(res, response.message, response.status ?? 400);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
   @Get('/details/:id')
   @RequirePermissions('companies.view')
   async companyDetails(

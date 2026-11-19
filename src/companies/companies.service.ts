@@ -5,12 +5,13 @@ import { company_addresses } from '../models/company_addresses';
 import { company_locations } from '../models/company_locations';
 import { company_metadata } from '../models/company_metadata';
 import { company_bank_accounts } from '../models/company_bank_accounts';
-import { Model, ModelStatic } from 'sequelize';
+import { Model, ModelStatic, Op } from 'sequelize';
 import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { CompanyMapper } from './mappers/company.mapper';
 import { getStateCodeFromGstin } from '../common/gst-state.util';
 import { CacheService, companyScope } from '../common/cache/cache.service';
 import { parseSalesFlow, storedSalesFlow } from './sales-flow.rules';
+import { parseSignature, signatureDataUrl } from './signature.rules';
 
 // Identity context passed down from the controller (and from the AI agent's
 // tool-calling path, which invokes this service directly) for every call.
@@ -103,6 +104,36 @@ export class CompanyService {
     return { success: true, message: 'Saved — the screens now follow how you sell', data: { sales_flow: flow } };
   }
 
+  /**
+   * The signature / stamp printed above "Authorised Signatory" (a PNG data URL),
+   * or null when there is none. Every document PDF reads it, so any user of the
+   * company may.
+   */
+  async getSignature(requester: CompanyRequester) {
+    const company = await this.Companies.findOne({
+      where: { id: requester.companyId, is_active: 1 },
+      attributes: ['id', 'signature'],
+    });
+    if (!company) return { success: false, message: 'Company not found' };
+    return { success: true, message: 'Signature', data: { signature: signatureDataUrl(company.signature) } };
+  }
+
+  /** Adds, replaces (a PNG data URL) or removes (null) the signature. */
+  async setSignature(requester: CompanyRequester, value: unknown) {
+    const parsed = parseSignature(value);
+    if (parsed.ok === false) return { success: false, message: parsed.message, status: 400 };
+    const company = await this.Companies.findOne({ where: { id: requester.companyId, is_active: 1 }, attributes: ['id'] });
+    if (!company) return { success: false, message: 'Company not found', status: 404 };
+    await this.Companies.update({ signature: parsed.value }, { where: { id: company.id } });
+    return {
+      success: true,
+      message: parsed.value
+        ? 'Signature saved — it now prints on your quotations, challans and invoices'
+        : 'Signature removed — documents now leave the space blank to sign by hand',
+      data: { has_signature: !!parsed.value },
+    };
+  }
+
   async getCompanyById(id: number, requester: CompanyRequester) {
     const log = this.appLogger.forContext('CompanyService', 'getCompanyById', {
       companyId: id,
@@ -137,6 +168,9 @@ export class CompanyService {
           if (json.logo && Buffer.isBuffer(json.logo)) {
             json.logo = `data:image/png;base64,${json.logo.toString('base64')}`;
           }
+          // Only whether there is one — the image itself comes from GET /companies/signature.
+          json.has_signature =
+            (await this.Companies.count({ where: { id, signature: { [Op.ne]: null } } as any })) > 0;
           return json;
         },
       );
