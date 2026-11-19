@@ -1,11 +1,25 @@
 import { HttpException, Inject, Injectable } from '@nestjs/common';
-import { Op, QueryTypes, Transaction, UniqueConstraintError } from 'sequelize';
+import { Op, QueryTypes, Transaction, UniqueConstraintError, literal } from 'sequelize';
 
 import { AppLogger } from '../common/logger/logger.service';
 import { DocumentType } from '../common/enums/document-type.enum';
 import { generateDocumentNumber } from '../common/utils/document-number.util';
 import { InvoiceService } from '../invoice/invoice.service';
 import { DocumentSeriesService } from '../document-series/document-series.service';
+import { parseTz, todayIn } from '../dashboard/dashboard.rules';
+import {
+  ATTENTION_ITEMS,
+  DEAD_INVOICE_STATUSES,
+  DRAFT_ITEMS,
+  EWAY_BILL_THRESHOLD,
+  QUOTE_RATE_SQL,
+  TO_INVOICE_SQL,
+  buildSummary,
+  parseListFilter,
+  parseReason,
+  parseSort,
+  summaryWindow,
+} from './challan-insights.rules';
 import {
   ChallanItemDto,
   ChallanListDto,
@@ -44,6 +58,19 @@ export interface ChallanRequester {
 
 const NOT_FOUND = 'Delivery challan not found';
 const EPS = 1e-9;
+
+/** Heavy columns the list never shows (the details call returns them). */
+const LIST_EXCLUDE = ['billing_address_snapshot', 'shipping_address_snapshot', 'notes'];
+
+/** Columns searched by the list's search box (plus quotation number and item names). */
+const SEARCH_FIELDS = ['challan_number', 'customer_name', 'vehicle_number', 'eway_bill_number', 'transporter_name'];
+
+const USER_ATTRS = ['id', 'first_name', 'last_name', 'email'];
+
+/** A live (not cancelled or replaced) invoice of the challan's quotation, newest first. */
+const quotationInvoiceSql = (col: 'id' | 'invoice_number', alias: string) =>
+  `(SELECT i.${col} FROM invoices i WHERE i.company_id = ${alias}.company_id AND i.quotation_id = ${alias}.quotation_id
+    AND COALESCE(i.status, '') NOT IN (${DEAD_INVOICE_STATUSES.map((s) => `'${s}'`).join(', ')}) ORDER BY i.id DESC LIMIT 1)`;
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const round3 = (n: number) =>
@@ -879,6 +906,7 @@ export class DeliveryChallanService {
 
   private flatten(json: any) {
     const { from_warehouse, to_warehouse, quotation, invoice, ...rest } = json;
+    const idOrNull = (v: any) => (v === null || v === undefined ? null : Number(v));
     return {
       ...rest,
       billing_address_snapshot: normalizeJson(rest.billing_address_snapshot),
@@ -887,37 +915,89 @@ export class DeliveryChallanService {
       to_warehouse_name: to_warehouse?.name ?? null,
       quotation_number: quotation?.quotation_number ?? null,
       invoice_number: invoice?.invoice_number ?? null,
+      ...(rest.items_count !== undefined && { items_count: Number(rest.items_count) || 0 }),
+      ...(rest.quotation_invoice_id !== undefined && {
+        quotation_invoice_id: idOrNull(rest.quotation_invoice_id),
+        quotation_invoice_number: rest.quotation_invoice_number ?? null,
+      }),
     };
+  }
+
+  /** Where-conditions for the list: the tab (a status, or "ready to invoice"), reason and search. */
+  private listConditions(query: ChallanListDto, companyId: number): any[] {
+    const filter = parseListFilter(query.status);
+    const reason = parseReason(query.reason);
+    const conditions: any[] = [{ company_id: companyId, is_active: 1 }];
+    if (filter === 'TO_INVOICE') {
+      conditions.push({
+        status: { [Op.in]: ['DISPATCHED', 'DELIVERED'] },
+        quotation_id: { [Op.ne]: null },
+        invoice_id: null,
+      });
+    } else if (filter) {
+      conditions.push({ status: filter });
+    } else {
+      // "All" is every live challan; cancelled ones have their own tab.
+      conditions.push({ status: { [Op.ne]: 'CANCELLED' } });
+    }
+    if (reason) conditions.push({ reason });
+    if (query.customer_id) conditions.push({ customer_id: Number(query.customer_id) });
+    if (query.quotation_id) conditions.push({ quotation_id: Number(query.quotation_id) });
+    if (query.from_date || query.to_date) {
+      conditions.push({
+        challan_date: {
+          ...(query.from_date && { [Op.gte]: query.from_date.substring(0, 10) }),
+          ...(query.to_date && { [Op.lte]: query.to_date.substring(0, 10) }),
+        },
+      });
+    }
+    const search = typeof query.search === 'string' ? query.search.trim().slice(0, 100) : '';
+    if (search) {
+      const like = `%${search}%`;
+      const pattern = this.dbProvider.sequelize.escape(like);
+      conditions.push({
+        [Op.or]: [
+          ...SEARCH_FIELDS.map((f) => ({ [f]: { [Op.like]: like } })),
+          // The quotation it was made from, and the goods on it.
+          {
+            quotation_id: {
+              [Op.in]: literal(
+                `(SELECT q.id FROM quotations q WHERE q.company_id = ${Number(companyId)} AND q.quotation_number LIKE ${pattern})`,
+              ),
+            },
+          },
+          {
+            id: {
+              [Op.in]: literal(
+                `(SELECT dci.delivery_challan_id FROM delivery_challan_items dci WHERE dci.item_name LIKE ${pattern})`,
+              ),
+            },
+          },
+        ],
+      });
+    }
+    return conditions;
+  }
+
+  private listOrder(sortRaw: unknown): any[] {
+    switch (parseSort(sortRaw)) {
+      case 'oldest':
+        return [['challan_date', 'ASC'], ['id', 'ASC']];
+      case 'value_high':
+        return [['total_value', 'DESC'], ['id', 'DESC']];
+      case 'value_low':
+        return [['total_value', 'ASC'], ['id', 'DESC']];
+      default:
+        return [['challan_date', 'DESC'], ['id', 'DESC']];
+    }
   }
 
   async listChallans(query: ChallanListDto, req: ChallanRequester) {
     return this.run('listChallans', { companyId: req.companyId }, async () => {
-      const page = Number(query.page) > 0 ? Number(query.page) : 1;
-      const limit = Math.min(100, Number(query.limit) > 0 ? Number(query.limit) : 10);
+      const page = Math.max(1, Math.floor(Number(query.page) || 1));
+      const limit = Math.min(100, Math.max(1, Math.floor(Number(query.limit) || 10)));
       const offset = (page - 1) * limit;
-
-      const where: any = { company_id: req.companyId, is_active: 1 };
-      if (query.status) where.status = query.status;
-      if (query.reason) where.reason = query.reason;
-      if (query.customer_id) where.customer_id = Number(query.customer_id);
-      if (query.quotation_id) where.quotation_id = Number(query.quotation_id);
-      if (query.from_date || query.to_date) {
-        where.challan_date = {
-          ...(query.from_date && { [Op.gte]: query.from_date.substring(0, 10) }),
-          ...(query.to_date && { [Op.lte]: query.to_date.substring(0, 10) }),
-        };
-      }
-      const search = query.search?.trim();
-      if (search) {
-        const like = { [Op.like]: `%${search}%` };
-        where[Op.or] = [
-          { challan_number: like },
-          { customer_name: like },
-          { vehicle_number: like },
-          { eway_bill_number: like },
-          { transporter_name: like },
-        ];
-      }
+      const self = '`delivery_challans`';
 
       const [counts, result] = await Promise.all([
         this.Challans.findAll({
@@ -930,12 +1010,20 @@ export class DeliveryChallanService {
           raw: true,
         }),
         this.Challans.findAndCountAll({
-          where,
+          where: { [Op.and]: this.listConditions(query, req.companyId) },
+          attributes: {
+            exclude: LIST_EXCLUDE,
+            include: [
+              [
+                literal(`(SELECT COUNT(*) FROM delivery_challan_items dci WHERE dci.delivery_challan_id = ${self}.id)`),
+                'items_count',
+              ],
+              [literal(quotationInvoiceSql('id', self)), 'quotation_invoice_id'],
+              [literal(quotationInvoiceSql('invoice_number', self)), 'quotation_invoice_number'],
+            ],
+          },
           include: this.listIncludes(),
-          order: [
-            ['challan_date', 'DESC'],
-            ['id', 'DESC'],
-          ],
+          order: this.listOrder(query.sort),
           limit,
           offset,
           distinct: true,
@@ -971,10 +1059,18 @@ export class DeliveryChallanService {
 
   async getChallanDetails(id: number, req: ChallanRequester) {
     return this.run('getChallanDetails', { companyId: req.companyId, challanId: id }, async () => {
+      const self = '`delivery_challans`';
       const challan = await this.Challans.findOne({
         where: { id, company_id: req.companyId, is_active: 1 },
+        attributes: {
+          include: [
+            [literal(quotationInvoiceSql('id', self)), 'quotation_invoice_id'],
+            [literal(quotationInvoiceSql('invoice_number', self)), 'quotation_invoice_number'],
+          ],
+        },
         include: [
           ...this.listIncludes(),
+          { model: this.db.users, as: 'created_by_user', attributes: USER_ATTRS },
           { model: this.ChallanItems, as: 'items' },
           {
             model: this.ChallanLogs,
@@ -1097,6 +1193,200 @@ export class DeliveryChallanService {
     );
   }
 
+  /**
+   * Approved quotations with goods still to send, one row per quotation: how
+   * many lines still have quantity left once live challans are counted, and
+   * what that is worth at the quotation's rate (before GST). Quantities sent
+   * beyond what was ordered never make another line negative.
+   * `summary` leaves out quotations invoiced without any challan: their goods
+   * went with the invoice.
+   */
+  private backlogSql(opts: { search: boolean; summary: boolean }) {
+    const pending = `GREATEST(COALESCE(qi.qty, 0) - COALESCE(s.sent, 0), 0)`;
+    return `
+      SELECT q.id AS quotation_id, MAX(q.quotation_number) AS quotation_number, MAX(q.customer_id) AS customer_id,
+             MAX(q.customer_name) AS customer_name, MAX(q.contact_person_name) AS contact_person_name,
+             DATE_FORMAT(MAX(COALESCE(q.quotation_date, DATE(q.created_at))), '%Y-%m-%d') AS quotation_date,
+             MAX(COALESCE(q.has_invoice, 0)) AS invoiced,
+             COUNT(*) AS items,
+             COALESCE(SUM(${pending} > 0), 0) AS pending_items,
+             COALESCE(SUM(${pending}), 0) AS pending_qty,
+             COALESCE(SUM(LEAST(COALESCE(qi.qty, 0), COALESCE(s.sent, 0))), 0) AS sent_qty,
+             COALESCE(SUM(COALESCE(qi.qty, 0)), 0) AS ordered_qty,
+             COALESCE(SUM(${pending} * ${QUOTE_RATE_SQL}), 0) AS pending_value,
+             (SELECT COUNT(*) FROM delivery_challans dc
+               WHERE dc.company_id = :c AND dc.quotation_id = q.id AND dc.status <> 'CANCELLED' AND dc.is_active = 1) AS challans,
+             MAX(q.updated_at) AS touched
+      FROM quotations q
+      JOIN quotation_items qi ON qi.quotation_id = q.id
+      LEFT JOIN (
+        SELECT dci.quotation_item_id, SUM(dci.quantity) AS sent
+        FROM delivery_challan_items dci
+        JOIN delivery_challans dc ON dc.id = dci.delivery_challan_id
+        WHERE dc.company_id = :c AND dc.status <> 'CANCELLED' AND dc.is_active = 1 AND dci.quotation_item_id IS NOT NULL
+        GROUP BY dci.quotation_item_id
+      ) s ON s.quotation_item_id = qi.id
+      WHERE q.company_id = :c AND q.status = 'APPROVED'
+        ${opts.search ? 'AND (q.quotation_number LIKE :s OR q.customer_name LIKE :s OR q.contact_person_name LIKE :s)' : ''}
+      GROUP BY q.id
+      HAVING pending_items > 0 ${opts.summary ? 'AND (invoiced = 0 OR challans > 0)' : ''}`;
+  }
+
+  /**
+   * Figures for the challan page: where every challan stands, what is on the
+   * road, what is ready to invoice, what is still to send on approved
+   * quotations, and the last six months of dispatches. Computed live in SQL
+   * (billing data is never cached), in the caller's time zone.
+   */
+  async getSummary(req: ChallanRequester, tzRaw: unknown) {
+    return this.run('getSummary', { companyId: req.companyId }, async () => {
+      const tz = parseTz(tzRaw);
+      const today = todayIn(new Date(), tz);
+      const { from, prevFrom, prevTo, staleOn } = summaryWindow(today);
+      const replacements = { c: req.companyId, tz, today, from, prevFrom, prevTo, staleOn, eway: EWAY_BILL_THRESHOLD };
+      const rows = (sql: string): Promise<any[]> =>
+        this.dbProvider.sequelize.query(sql, { replacements, type: QueryTypes.SELECT });
+      // Timestamps are stored in UTC; days are the business's own.
+      const local = (col: string) => `DATE(DATE_ADD(${col}, INTERVAL :tz MINUTE))`;
+      const live = `dc.company_id = :c AND dc.is_active = 1`;
+      const sent = `${live} AND dc.status <> 'CANCELLED' AND dc.dispatched_at IS NOT NULL`;
+      const sentOn = local('dc.dispatched_at');
+
+      const [statusRows, toInvoiceRows, ewayRows, onRoadRows, readyRows, monthRows, prevRows, reasonRows, speedRows, backlogRows, draftRows] =
+        await Promise.all([
+          rows(`
+            SELECT dc.status, COUNT(*) AS n, COALESCE(SUM(dc.total_value), 0) AS v,
+                   COALESCE(SUM(dc.status = 'DRAFT' AND ${local('dc.created_at')} <= :staleOn), 0) AS stale,
+                   DATE_FORMAT(MIN(CASE WHEN dc.status = 'DISPATCHED' THEN ${sentOn} END), '%Y-%m-%d') AS first_sent
+            FROM delivery_challans dc
+            WHERE ${live}
+            GROUP BY dc.status`),
+          rows(`
+            SELECT COUNT(*) AS n, COALESCE(SUM(dc.total_value), 0) AS v,
+                   COALESCE(SUM(${quotationInvoiceSql('id', 'dc')} IS NOT NULL), 0) AS link_n
+            FROM delivery_challans dc
+            WHERE ${live} AND ${TO_INVOICE_SQL}`),
+          rows(`
+            SELECT COUNT(*) AS n, COALESCE(SUM(dc.total_value), 0) AS v
+            FROM delivery_challans dc
+            WHERE ${live} AND dc.status IN ('DRAFT', 'DISPATCHED') AND dc.total_value >= :eway
+              AND COALESCE(TRIM(dc.eway_bill_number), '') = ''`),
+          rows(`
+            SELECT dc.id, dc.challan_number, dc.customer_name, dc.reason, wf.name AS from_name, wt.name AS to_name,
+                   DATE_FORMAT(${sentOn}, '%Y-%m-%d') AS sent_on, dc.total_value, dc.vehicle_number
+            FROM delivery_challans dc
+            LEFT JOIN warehouses wf ON wf.id = dc.from_warehouse_id
+            LEFT JOIN warehouses wt ON wt.id = dc.to_warehouse_id
+            WHERE ${live} AND dc.status = 'DISPATCHED'
+            ORDER BY dc.dispatched_at ASC, dc.id ASC
+            LIMIT ${ATTENTION_ITEMS}`),
+          rows(`
+            SELECT dc.id, dc.challan_number, dc.customer_name, q.quotation_number, dc.status,
+                   DATE_FORMAT(${local('COALESCE(dc.delivered_at, dc.dispatched_at)')}, '%Y-%m-%d') AS since,
+                   dc.total_value, ${quotationInvoiceSql('invoice_number', 'dc')} AS invoice_number
+            FROM delivery_challans dc
+            LEFT JOIN quotations q ON q.id = dc.quotation_id
+            WHERE ${live} AND ${TO_INVOICE_SQL}
+            ORDER BY COALESCE(dc.delivered_at, dc.dispatched_at) ASC, dc.id ASC
+            LIMIT ${ATTENTION_ITEMS}`),
+          rows(`
+            SELECT DATE_FORMAT(${sentOn}, '%Y-%m') AS m, COUNT(*) AS n, COALESCE(SUM(dc.total_value), 0) AS v,
+                   COALESCE(SUM(dc.status IN ('DELIVERED', 'INVOICED')), 0) AS c
+            FROM delivery_challans dc
+            WHERE ${sent} AND ${sentOn} BETWEEN :from AND :today
+            GROUP BY m`),
+          rows(`
+            SELECT COUNT(*) AS n, COALESCE(SUM(dc.total_value), 0) AS v
+            FROM delivery_challans dc
+            WHERE ${sent} AND ${sentOn} BETWEEN :prevFrom AND :prevTo`),
+          rows(`
+            SELECT dc.reason, COUNT(*) AS n, COALESCE(SUM(dc.total_value), 0) AS v
+            FROM delivery_challans dc
+            WHERE ${sent} AND ${sentOn} BETWEEN :from AND :today
+            GROUP BY dc.reason`),
+          rows(`
+            SELECT AVG(TIMESTAMPDIFF(MINUTE, dc.dispatched_at, dc.delivered_at)) / 60 AS avg_hours, COUNT(*) AS n
+            FROM delivery_challans dc
+            WHERE ${sent} AND dc.delivered_at IS NOT NULL AND dc.delivered_at >= dc.dispatched_at
+              AND ${local('dc.delivered_at')} BETWEEN :from AND :today`),
+          rows(this.backlogSql({ search: false, summary: true })),
+          rows(`
+            SELECT dc.id, dc.challan_number, dc.customer_name, dc.reason, dc.affects_stock, dc.from_warehouse_id,
+                   wf.name AS from_name, wt.name AS to_name,
+                   DATE_FORMAT(${local('dc.created_at')}, '%Y-%m-%d') AS made_on, dc.total_value, dc.eway_bill_number
+            FROM delivery_challans dc
+            LEFT JOIN warehouses wf ON wf.id = dc.from_warehouse_id
+            LEFT JOIN warehouses wt ON wt.id = dc.to_warehouse_id
+            WHERE ${live} AND dc.status = 'DRAFT'
+            ORDER BY dc.created_at ASC, dc.id ASC
+            LIMIT ${DRAFT_ITEMS}`),
+        ]);
+
+      return {
+        success: true,
+        message: 'Delivery challan summary',
+        data: buildSummary({
+          today,
+          statusRows,
+          toInvoice: toInvoiceRows[0],
+          eway: ewayRows[0],
+          onRoadRows,
+          draftRows,
+          readyRows,
+          monthRows,
+          prev: prevRows[0],
+          reasonRows,
+          speed: speedRows[0],
+          backlogRows,
+        }),
+      };
+    });
+  }
+
+  /**
+   * Approved quotations a challan can be made from: goods still to send, most
+   * recently touched first (50 at most, plus the total so the picker can say
+   * there are more).
+   */
+  async eligibleQuotations(req: ChallanRequester, searchRaw: unknown) {
+    return this.run('eligibleQuotations', { companyId: req.companyId }, async () => {
+      const search = typeof searchRaw === 'string' ? searchRaw.trim().slice(0, 100) : '';
+      const base = this.backlogSql({ search: !!search, summary: false });
+      const replacements = { c: req.companyId, s: `%${search}%` };
+      const [list, totalRows] = await Promise.all([
+        this.dbProvider.sequelize.query(`${base} ORDER BY touched DESC, q.id DESC LIMIT 50`, {
+          replacements,
+          type: QueryTypes.SELECT,
+        }),
+        this.dbProvider.sequelize.query(`SELECT COUNT(*) AS n FROM (${base}) t`, {
+          replacements,
+          type: QueryTypes.SELECT,
+        }),
+      ]);
+      const rows = (list as any[]).map((r) => ({
+        id: Number(r.quotation_id),
+        quotation_number: r.quotation_number,
+        customer_id: r.customer_id === null || r.customer_id === undefined ? null : Number(r.customer_id),
+        customer_name: r.customer_name || null,
+        contact_person_name: r.contact_person_name || null,
+        quotation_date: r.quotation_date || null,
+        items: Number(r.items || 0),
+        pending_items: Number(r.pending_items || 0),
+        pending_qty: round3(Number(r.pending_qty || 0)),
+        sent_qty: round3(Number(r.sent_qty || 0)),
+        ordered_qty: round3(Number(r.ordered_qty || 0)),
+        pending_value: round2(Number(r.pending_value || 0)),
+        challans: Number(r.challans || 0),
+        invoiced: Number(r.invoiced || 0) > 0,
+      }));
+      return {
+        success: true,
+        message: 'Quotations with goods still to send',
+        data: { rows, total: Number((totalRows as any[])[0]?.n || 0) },
+      };
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Mutations
   // ---------------------------------------------------------------------------
@@ -1171,7 +1461,7 @@ export class DeliveryChallanService {
       const details = await this.getChallanDetails(challanId, req);
       return {
         success: true,
-        message: 'Delivery challan created successfully',
+        message: `${details.data?.challan_number || 'Delivery challan'} created`,
         data: details.data,
       };
     });
@@ -1290,7 +1580,7 @@ export class DeliveryChallanService {
       const details = await this.getChallanDetails(id, req);
       return {
         success: true,
-        message: 'Delivery challan updated successfully',
+        message: `${details.data?.challan_number || 'Delivery challan'} saved`,
         data: details.data,
       };
     });
@@ -1355,7 +1645,11 @@ export class DeliveryChallanService {
       });
 
       const details = await this.getChallanDetails(id, req);
-      return { success: true, message: 'Delivery challan dispatched', data: details.data };
+      return {
+        success: true,
+        message: `${details.data?.challan_number || 'Delivery challan'} is on its way`,
+        data: details.data,
+      };
     });
   }
 
@@ -1375,7 +1669,11 @@ export class DeliveryChallanService {
       });
 
       const details = await this.getChallanDetails(id, req);
-      return { success: true, message: 'Delivery challan marked as delivered', data: details.data };
+      return {
+        success: true,
+        message: `${details.data?.challan_number || 'Delivery challan'} marked as delivered`,
+        data: details.data,
+      };
     });
   }
 
@@ -1442,13 +1740,17 @@ export class DeliveryChallanService {
       });
 
       const details = await this.getChallanDetails(id, req);
-      return { success: true, message: 'Delivery challan cancelled', data: details.data };
+      return {
+        success: true,
+        message: `${details.data?.challan_number || 'Delivery challan'} cancelled`,
+        data: details.data,
+      };
     });
   }
 
   async deleteChallan(id: number, req: ChallanRequester) {
     return this.run('deleteChallan', { companyId: req.companyId, challanId: id }, async () => {
-      await this.inTransaction(async (transaction) => {
+      const number = await this.inTransaction(async (transaction) => {
         const challan = await this.findChallan(id, req.companyId, transaction, true);
         if (challan.status !== 'DRAFT') {
           throw new ChallanError(400, 'Only draft challans can be deleted');
@@ -1456,8 +1758,9 @@ export class DeliveryChallanService {
         const before = this.snapshotOf(challan);
         await challan.update({ is_active: 0, updated_by: req.userId }, { transaction });
         await this.logActivity(id, 'DELETED', before, { is_active: 0 }, req.userId, transaction);
+        return before.challan_number as string;
       });
-      return { success: true, message: 'Delivery challan deleted', data: { id } };
+      return { success: true, message: `${number || 'Delivery challan'} deleted`, data: { id } };
     });
   }
 
@@ -1466,6 +1769,7 @@ export class DeliveryChallanService {
     paymentDueDate: string,
     req: ChallanRequester,
     seriesId?: number,
+    invoiceDate?: string,
   ) {
     return this.run('convertToInvoice', { companyId: req.companyId, challanId: id }, async () => {
       const challan = await this.findChallan(id, req.companyId);
@@ -1477,25 +1781,31 @@ export class DeliveryChallanService {
       }
       const quotationId = Number(challan.quotation_id);
 
-      // Never link a cancelled invoice: INVOICED challans are terminal.
+      // Never link a cancelled or replaced invoice (INVOICED challans are
+      // terminal); when a quotation has several, the newest live one wins.
       const findInvoice = () =>
         this.db.invoices.findOne({
           where: {
             quotation_id: quotationId,
             company_id: req.companyId,
-            status: { [Op.ne]: 'CANCELLED' },
+            [Op.or]: [{ status: { [Op.notIn]: DEAD_INVOICE_STATUSES } }, { status: null }],
           },
           attributes: ['id', 'invoice_number'],
+          order: [['id', 'DESC']],
         });
       const assertNoCancelledInvoice = async () => {
         const cancelled = await this.db.invoices.findOne({
-          where: { quotation_id: quotationId, company_id: req.companyId, status: 'CANCELLED' },
+          where: {
+            quotation_id: quotationId,
+            company_id: req.companyId,
+            status: { [Op.in]: DEAD_INVOICE_STATUSES },
+          },
           attributes: ['id'],
         });
         if (cancelled) {
           throw new ChallanError(
             400,
-            "The quotation's invoice is cancelled; the challan cannot be converted",
+            "The quotation's invoice was cancelled, so this challan can't be invoiced from it",
           );
         }
       };
@@ -1508,7 +1818,7 @@ export class DeliveryChallanService {
         try {
           const result: any = await this.invoiceService.generateInvoice(
             quotationId,
-            { payment_due_date: paymentDueDate, series_id: seriesId } as any,
+            { payment_due_date: paymentDueDate, series_id: seriesId, invoice_date: invoiceDate } as any,
             req.userId,
             req.companyId,
           );
@@ -1579,11 +1889,13 @@ export class DeliveryChallanService {
       });
 
       const details = await this.getChallanDetails(id, req);
+      const alsoText =
+        converted.length > 1 ? ` — all ${converted.length} challans of this quotation are now invoiced` : '';
       return {
         success: true,
         message: generated
-          ? 'Invoice generated and linked to delivery challan'
-          : 'Delivery challan linked to existing invoice',
+          ? `Invoice ${invoice.invoice_number} created${alsoText}`
+          : `Linked to invoice ${invoice.invoice_number}${alsoText}`,
         data: {
           challan: details.data,
           invoice: { id: invoiceId, invoice_number: invoice.invoice_number },

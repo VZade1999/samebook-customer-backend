@@ -272,13 +272,28 @@ export class ChallanListDto {
   @IsString()
   search?: string;
 
+  // A status, or TO_INVOICE (dispatched/delivered, from a quotation, no
+  // invoice yet). Read leniently: anything else lists every live challan.
   @IsOptional()
-  @IsIn(DC_STATUSES as unknown as string[])
-  status?: DcStatus;
+  @IsString()
+  @MaxLength(20)
+  status?: DcStatus | 'TO_INVOICE' | string;
 
   @IsOptional()
   @IsIn(DC_REASONS as unknown as string[])
   reason?: DcReason;
+
+  // newest | oldest | value_high | value_low (anything else = newest).
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  sort?: string;
+
+  // Viewer's offset from UTC in minutes (accepted for parity with the summary).
+  @IsOptional()
+  @IsString()
+  @MaxLength(6)
+  tz?: string;
 
   @IsOptional()
   @Type(() => Number)
@@ -311,6 +326,12 @@ export class CancelChallanDto {
 export class ConvertChallanDto {
   @IsDateString()
   payment_due_date: string;
+
+  // Date of a newly made invoice; omitted = today. Ignored when the
+  // quotation already has an invoice (the challan is linked to it).
+  @IsOptional()
+  @IsDateString()
+  invoice_date?: string;
 
   // Invoice numbering series; omitted = the company's default.
   @IsOptional()

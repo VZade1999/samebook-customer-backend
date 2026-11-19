@@ -83,6 +83,29 @@ export class DeliveryChallanController {
     );
   }
 
+  // Figures above the list. Same permission as the list: every value in it is
+  // already visible on the challans themselves.
+  @Get('/summary')
+  @RequirePermissions('challans.view')
+  async summary(@Req() req: Request, @Res() res: Response, @Query('tz') tz?: string) {
+    return this.handle(req, res, 'summary', () =>
+      this.challanService.getSummary(this.requester(req), tz),
+    );
+  }
+
+  // Approved quotations with goods still to send (the "new challan" picker).
+  @Get('/eligible-quotations')
+  @RequirePermissions('challans.create')
+  async eligibleQuotations(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('search') search?: string,
+  ) {
+    return this.handle(req, res, 'eligibleQuotations', () =>
+      this.challanService.eligibleQuotations(this.requester(req), search),
+    );
+  }
+
   @Get('/quotation/:quotationId/remaining')
   @RequirePermissions('challans.view')
   async quotationRemaining(
@@ -195,6 +218,7 @@ export class DeliveryChallanController {
         body.payment_due_date,
         this.requester(req),
         body.series_id,
+        body.invoice_date,
       ),
     );
   }
