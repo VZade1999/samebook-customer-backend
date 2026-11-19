@@ -138,6 +138,8 @@ export class CustomerService {
 
             notes: data.notes,
 
+            po_required: data.po_required ? 1 : 0,
+
             created_by:
               currentUser.user_id,
 
@@ -760,6 +762,12 @@ export class CustomerService {
             undefined && {
             notes:
               data.notes,
+          }),
+
+          ...(data.po_required !==
+            undefined && {
+            po_required:
+              data.po_required ? 1 : 0,
           }),
 
           updated_by:

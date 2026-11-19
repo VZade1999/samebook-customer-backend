@@ -1,10 +1,14 @@
 import {
+  approveBlocker,
   buildSummary,
   closeBlocker,
   closeReasonLabel,
   daysBetween,
+  editBlocker,
   lastMonthToDate,
   parseClose,
+  parsePo,
+  poBlocker,
   reopenBlocker,
   reopenStatus,
   monthKeys,
@@ -12,6 +16,65 @@ import {
   parseSort,
   summaryWindow,
 } from './quotation-insights.rules';
+
+describe('customer PO rules', () => {
+  const ctx = { today: '2026-11-19', required: false };
+
+  it('cleans the PO number and keeps an optional date', () => {
+    expect(parsePo({ customer_po_number: '  PO / 4500  123 ', customer_po_date: '2026-11-02' }, ctx)).toEqual({
+      ok: true,
+      number: 'PO / 4500 123',
+      date: '2026-11-02',
+    });
+    expect(parsePo({ customer_po_number: 4500123 }, ctx)).toEqual({ ok: true, number: '4500123', date: null });
+    expect(parsePo({}, ctx)).toEqual({ ok: true, number: null, date: null });
+    expect(parsePo(undefined, ctx)).toEqual({ ok: true, number: null, date: null });
+    expect(parsePo({ customer_po_number: '', customer_po_date: '' }, ctx)).toEqual({ ok: true, number: null, date: null });
+    expect(parsePo({ customer_po_number: 'X', customer_po_date: '2026-11-19' }, ctx)).toMatchObject({ ok: true, date: '2026-11-19' });
+  });
+
+  it('refuses bad PO input', () => {
+    expect(parsePo({ customer_po_number: 'x'.repeat(41) }, ctx)).toMatchObject({ ok: false, message: expect.stringMatching(/at most 40/) });
+    expect(parsePo({ customer_po_number: 'A1', customer_po_date: '2026-02-30' }, ctx)).toMatchObject({ ok: false, message: expect.stringMatching(/valid date/) });
+    expect(parsePo({ customer_po_number: 'A1', customer_po_date: '2026-11-20' }, ctx)).toMatchObject({ ok: false, message: expect.stringMatching(/future/) });
+    expect(parsePo({ customer_po_date: '2026-11-02' }, ctx)).toMatchObject({ ok: false, message: expect.stringMatching(/PO number for this PO date/) });
+    expect(parsePo({ customer_po_number: { a: 1 } }, ctx)).toMatchObject({ ok: false });
+  });
+
+  it('a "PO required" customer must give the number', () => {
+    const required = { ...ctx, required: true };
+    expect(parsePo({}, required)).toMatchObject({ ok: false, message: expect.stringMatching(/always sends a purchase order/) });
+    expect(parsePo({ customer_po_number: '   ' }, required)).toMatchObject({ ok: false });
+    expect(parsePo({ customer_po_number: '4500123' }, required)).toEqual({ ok: true, number: '4500123', date: null });
+  });
+
+  it('the PO can change only on an approved, not yet invoiced quotation', () => {
+    expect(poBlocker({ status: 'APPROVED' })).toBeNull();
+    expect(poBlocker({ status: 'PARTIALLY_DISPATCHED' })).toBeNull();
+    expect(poBlocker({ status: 'FULLY_DISPATCHED', has_invoice: 0 })).toBeNull();
+    expect(poBlocker({ status: 'APPROVED', has_invoice: 1 })).toMatch(/invoice/);
+    expect(poBlocker({ status: 'INVOICED' })).toMatch(/invoice/);
+    expect(poBlocker({ status: 'SENT' })).toMatch(/approves/);
+    expect(poBlocker({ status: 'DELETED' })).toBe('Quotation not found');
+  });
+
+  it('a quotation with challans or an invoice can no longer be edited', () => {
+    expect(editBlocker({ challans: 0, invoices: 0 })).toBeNull();
+    expect(editBlocker({})).toBeNull();
+    expect(editBlocker({ challans: '2', invoices: 0 })).toMatch(/delivery challans/);
+    expect(editBlocker({ challans: 1, invoices: 1 })).toMatch(/has an invoice/);
+  });
+
+  it('approving needs an open, not yet approved quotation', () => {
+    expect(approveBlocker({ status: 'SENT' })).toBeNull();
+    expect(approveBlocker({ status: 'DRAFT' })).toBeNull();
+    expect(approveBlocker({ status: 'APPROVED' })).toMatch(/already approved/);
+    expect(approveBlocker({ status: 'PARTIALLY_DISPATCHED' })).toMatch(/already approved/);
+    expect(approveBlocker({ status: 'SENT', has_invoice: true })).toMatch(/invoice/);
+    expect(approveBlocker({ status: 'REJECTED' })).toMatch(/reopen/);
+    expect(approveBlocker({ status: 'DELETED' })).toBe('Quotation not found');
+  });
+});
 
 describe('quotation insights rules', () => {
   it('month keys run oldest first and cross the year boundary', () => {

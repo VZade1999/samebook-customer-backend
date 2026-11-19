@@ -33,6 +33,10 @@ export interface customersAttributes {
 
   notes?: string;
 
+  // 1 = this customer always sends a purchase order; a quotation for them
+  // can't be approved without the PO number.
+  po_required?: number;
+
   created_by?: number;
 
   updated_by?: number;
@@ -57,6 +61,7 @@ export type customersOptionalAttributes =
   | 'industry'
   | 'is_active'
   | 'notes'
+  | 'po_required'
   | 'created_by'
   | 'updated_by'
   | 'created_at'
@@ -100,6 +105,8 @@ export class customers
   is_active?: number;
 
   notes?: string;
+
+  po_required?: number;
 
   created_by?: number;
 
@@ -210,6 +217,14 @@ export class customers
           type: DataTypes.TEXT,
 
           allowNull: true,
+        },
+
+        po_required: {
+          type: DataTypes.TINYINT,
+
+          allowNull: false,
+
+          defaultValue: 0,
         },
 
         created_by: {

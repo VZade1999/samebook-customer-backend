@@ -28,6 +28,7 @@ import { CreateQuotationDto } from './dto/createQuotation.dto';
 
 import { UpdateQuotationDto } from './dto/updateQuotation.dto';
 import { QuotationsListDto } from './dto/quotationsList.dto';
+import { CustomerPoDto } from './dto/customerPo.dto';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { AuthGuard } from 'src/middlewares/auth.guard';
@@ -320,24 +321,54 @@ export class QuotationController {
       return errorRes(res, error);
     }
   }
-  @UseGuards(AuthGuard)
-    @Post('/:id/approve')
+  // APPROVE — optionally with the customer's PO number & date (required for
+  // customers marked "PO required"). Same permission as the app's button.
+  @UseGuards(AuthGuard, PermissionsGuard)
+  @RequirePermissions('quotations.send')
+  @Post('/:id/approve')
   async approveQuotation(
     @Req() req: Request,
     @Res() res: Response,
     @Param('id', ParseIntPipe) id: number,
+    @Body(new ValidationPipe({ whitelist: true })) body: CustomerPoDto,
   ) {
     try {
       const response = await this.quotationService.approveQuotation(
         id,
         (req as any).user.company_id,
         (req as any).user.user_id,
+        body,
       );
 
+      // A refusal (wrong status, missing PO…) is the request's problem, not a server error.
       if (!response.success) {
-        return failedRes(res, response.message);
+        return failedRes(res, response.message, 400);
       }
 
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  // CUSTOMER PO — add, change or clear it on an approved quotation (locks once invoiced)
+  @UseGuards(AuthGuard, PermissionsGuard)
+  @RequirePermissions('quotations.edit')
+  @Put('/:id/po')
+  async setCustomerPo(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ValidationPipe({ whitelist: true })) body: CustomerPoDto,
+  ) {
+    try {
+      const response = await this.quotationService.setCustomerPo(
+        id,
+        (req as any).user.company_id,
+        (req as any).user.user_id,
+        body,
+      );
+      if (!response.success) return failedRes(res, response.message, 400);
       return successRes(res, response.message, response.data);
     } catch (error) {
       return errorRes(res, error);

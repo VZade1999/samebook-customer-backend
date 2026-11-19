@@ -157,6 +157,12 @@ customer_type: CUSTOMER_TYPE;
   @MaxLength(2000)
   notes?: string;
 
+  // The customer always sends a purchase order — approving their quotation
+  // then needs the PO number. true/false or 1/0.
+  @IsOptional()
+  @IsIn([true, false, 0, 1])
+  po_required?: boolean | number;
+
   // =========================================
   // CONTACTS
   // =========================================

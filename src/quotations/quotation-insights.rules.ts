@@ -2,7 +2,7 @@
 // filters and sorts, and the summary shown above the list. SQL fragments use
 // the alias `q`; nothing here touches the database, so it is unit-tested.
 
-import { addDays, money, num, pctChange } from '../dashboard/dashboard.rules';
+import { addDays, isIsoDate, money, num, pctChange } from '../dashboard/dashboard.rules';
 
 /** Where a quotation is in its life. Invoiced wins over the stored status. */
 export const STAGES = ['draft', 'sent', 'approved', 'invoiced', 'rejected', 'expired'] as const;
@@ -82,6 +82,73 @@ export const parseClose = (
   if (remark.length > REMARK_MAX) return { ok: false, message: `Keep the remark under ${REMARK_MAX} characters` };
   if (reason === 'OTHER' && remark.length < 3) return { ok: false, message: 'Add a remark explaining why it was closed' };
   return { ok: true, outcome: outcome as CloseOutcome, reason, remark: remark || null };
+};
+
+// ── The customer's purchase order ("Buyer's Order No. & Date") ──────────────
+// It belongs to the approved quotation; challans and invoices print it from
+// there, so it locks once an invoice is made.
+
+export const PO_NUMBER_MAX = 40;
+
+const isInvoiced = (q: { status?: string | null; has_invoice?: unknown }) =>
+  Number(q.has_invoice) === 1 || q.has_invoice === true || q.status === 'INVOICED';
+
+/** Why the PO of this quotation can't be set or changed now, or null when it can. */
+export const poBlocker = (q: { status?: string | null; has_invoice?: unknown }): string | null => {
+  if (q.status === 'DELETED') return 'Quotation not found';
+  if (isInvoiced(q)) return "An invoice was made from this quotation, so its PO can't be changed";
+  if (!APPROVED_STATUSES.includes(q.status ?? '')) return 'The PO is added when the customer approves the quotation';
+  return null;
+};
+
+/** Why a quotation can't be approved now, or null when it can. */
+export const approveBlocker = (q: { status?: string | null; has_invoice?: unknown }): string | null => {
+  if (q.status === 'DELETED') return 'Quotation not found';
+  if (isInvoiced(q)) return 'An invoice was made from this quotation, so it is already approved';
+  if (APPROVED_STATUSES.includes(q.status ?? '')) return 'This quotation is already approved';
+  if (q.status === 'REJECTED' || q.status === 'EXPIRED') return 'This quotation is closed — reopen it first';
+  return null;
+};
+
+/**
+ * Cleans the customer's PO number and date. A date needs a number, a future
+ * date is refused, and `required` (the customer always sends a PO) makes the
+ * number compulsory.
+ */
+export const parsePo = (
+  body: { customer_po_number?: unknown; customer_po_date?: unknown } | null | undefined,
+  ctx: { today: string; required: boolean },
+): { ok: true; number: string | null; date: string | null } | { ok: false; message: string } => {
+  const raw = body?.customer_po_number;
+  if (raw != null && typeof raw !== 'string' && typeof raw !== 'number') return { ok: false, message: 'The PO number is not valid' };
+  const number = raw == null ? '' : String(raw).trim().replace(/\s+/g, ' ');
+  if (number.length > PO_NUMBER_MAX) return { ok: false, message: `The PO number can have at most ${PO_NUMBER_MAX} characters` };
+
+  const rawDate = body?.customer_po_date;
+  let date: string | null = null;
+  if (rawDate != null && rawDate !== '') {
+    if (!isIsoDate(rawDate)) return { ok: false, message: 'The PO date is not a valid date' };
+    if (rawDate > ctx.today) return { ok: false, message: "The PO date can't be in the future" };
+    date = rawDate;
+  }
+  if (!number && date) return { ok: false, message: 'Enter the PO number for this PO date' };
+  if (!number && ctx.required) return { ok: false, message: 'This customer always sends a purchase order — enter the PO number' };
+  return { ok: true, number: number || null, date };
+};
+
+/**
+ * Why a quotation can't be edited, or null when it can. Once a challan or an
+ * invoice exists, its items and prices are what the goods were sent and
+ * billed against — editing would change them under those documents.
+ */
+export const editBlocker = (links: { challans?: unknown; invoices?: unknown }): string | null => {
+  if (Number(links.invoices) > 0) {
+    return 'This quotation has an invoice, so its items and prices are locked. Make a new quotation for any changes.';
+  }
+  if (Number(links.challans) > 0) {
+    return 'This quotation has delivery challans, so its items and prices are locked. Delete its draft challans or cancel them first — or make a new quotation for the changes.';
+  }
+  return null;
 };
 
 /** Status to restore on reopen: what it was before closing, if that was an open one. */

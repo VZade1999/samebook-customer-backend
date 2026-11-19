@@ -28,6 +28,7 @@ import { DeliveryChallanModule } from './delivery-challan/delivery-challan.modul
 import { CompanyModulesModule } from './company-modules/company-modules.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { DocumentSeriesModule } from './document-series/document-series.module';
+import { DocumentLinksModule } from './document-links/document-links.module';
 import { ThrottlerBehindProxyGuard } from './middlewares/throttle.guard';
 
 //import { AppController } from './app.controller';
@@ -63,6 +64,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     ProfileModule,
     NotificationsModule,
     DocumentSeriesModule,
+    DocumentLinksModule,
     // Add-on features
     AttendanceFeatureModule,
     TasksFeatureModule,

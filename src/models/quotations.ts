@@ -91,6 +91,9 @@ export interface quotationsAttributes {
   close_remark?: string | null;
   closed_at?: Date | null;
   closed_by?: number | null;
+  // The customer's purchase order ("Buyer's Order No. & Date"); locks once invoiced.
+  customer_po_number?: string | null;
+  customer_po_date?: string | null;
 }
 
 export type quotationsPk = 'id';
@@ -143,7 +146,9 @@ export type quotationsOptionalAttributes =
   | 'close_reason'
   | 'close_remark'
   | 'closed_at'
-  | 'closed_by';
+  | 'closed_by'
+  | 'customer_po_number'
+  | 'customer_po_date';
 
 export type quotationsCreationAttributes = Optional<
   quotationsAttributes,
@@ -240,6 +245,8 @@ export class quotations
   close_remark?: string | null;
   closed_at?: Date | null;
   closed_by?: number | null;
+  customer_po_number?: string | null;
+  customer_po_date?: string | null;
   static initModel(sequelize: Sequelize.Sequelize): typeof quotations {
     return quotations.init(
       {
@@ -492,6 +499,14 @@ export class quotations
         },
         closed_by: {
           type: DataTypes.BIGINT,
+          allowNull: true,
+        },
+        customer_po_number: {
+          type: DataTypes.STRING(40),
+          allowNull: true,
+        },
+        customer_po_date: {
+          type: DataTypes.DATEONLY,
           allowNull: true,
         },
       },

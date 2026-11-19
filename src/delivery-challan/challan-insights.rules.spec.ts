@@ -24,7 +24,12 @@ describe('challan list rules', () => {
   it('reads "ready to invoice" the same way as the SQL and the dashboard', () => {
     expect(isToInvoice({ status: 'DELIVERED', quotation_id: 4, invoice_id: null })).toBe(true);
     expect(isToInvoice({ status: 'DISPATCHED', quotation_id: 4 })).toBe(true);
-    // Standalone challans (job work, transfers…) are never invoiced from here.
+    // Without a quotation: a sale to a customer is billed (in the invoice editor)…
+    expect(isToInvoice({ status: 'DELIVERED', quotation_id: null, invoice_id: null, customer_id: 7, reason: 'SALE' })).toBe(true);
+    expect(isToInvoice({ status: 'DISPATCHED', quotation_id: null, customer_id: 7, reason: 'SUPPLY_ON_APPROVAL' })).toBe(true);
+    // …job work, repair, exhibition and own-warehouse transfers never are.
+    expect(isToInvoice({ status: 'DELIVERED', quotation_id: null, invoice_id: null, customer_id: 7, reason: 'JOB_WORK' })).toBe(false);
+    expect(isToInvoice({ status: 'DELIVERED', quotation_id: null, invoice_id: null, customer_id: null, reason: 'STOCK_TRANSFER' })).toBe(false);
     expect(isToInvoice({ status: 'DELIVERED', quotation_id: null, invoice_id: null })).toBe(false);
     // Already linked to an invoice, or not sent yet.
     expect(isToInvoice({ status: 'DISPATCHED', quotation_id: 1, invoice_id: 1 })).toBe(false);

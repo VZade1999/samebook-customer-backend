@@ -1,5 +1,6 @@
 import { Type } from "class-transformer";
-import { IsDateString, IsNumber, IsOptional } from "class-validator";
+import { ArrayMaxSize, IsArray, IsDateString, IsNumber, IsOptional, Min, ValidateNested } from "class-validator";
+import { BillLineDto } from "./billing.dto";
 
 export class GenrateInvoice{
 
@@ -23,4 +24,20 @@ export class GenrateInvoice{
     @Type(() => Number)
     @IsNumber()
     series_id?: number
+
+    // What to bill: quantities per quotation line. Left out = everything not
+    // billed yet (a quotation can have several invoices).
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(500)
+    @ValidateNested({ each: true })
+    @Type(() => BillLineDto)
+    lines?: BillLineDto[]
+
+    // Defaults to the quotation's transport on its first invoice.
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber()
+    @Min(0)
+    transport_charges?: number
 }

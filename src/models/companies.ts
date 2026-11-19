@@ -15,6 +15,8 @@ export interface companiesAttributes {
   primary_phone?: string;
   status?: string;
   default_terms_conditions?: string;
+  /** How the company usually sells (null = not chosen yet). Only changes defaults. */
+  sales_flow?: string | null;
   logo?: Buffer;
   is_active?: number;
   created_at?: Date;
@@ -36,6 +38,7 @@ export type companiesOptionalAttributes =
   | 'primary_phone'
   | 'status'
   | 'default_terms_conditions'
+  | 'sales_flow'
   | 'logo'
   | 'is_active'
   | 'created_at'
@@ -62,6 +65,7 @@ export class companies
   primary_phone?: string;
   status?: string;
   default_terms_conditions?: string;
+  sales_flow?: string | null;
   logo?: Buffer;
   is_active?: number;
   created_at?: Date;
@@ -129,6 +133,10 @@ export class companies
         },
         default_terms_conditions: {
           type: DataTypes.TEXT,
+          allowNull: true,
+        },
+        sales_flow: {
+          type: DataTypes.STRING(20),
           allowNull: true,
         },
         logo: {

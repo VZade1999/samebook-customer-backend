@@ -9,6 +9,7 @@ import { DocumentSeriesService } from '../document-series/document-series.servic
 import { parseTz, todayIn } from '../dashboard/dashboard.rules';
 import {
   ATTENTION_ITEMS,
+  BILLABLE_STANDALONE_REASONS,
   DEAD_INVOICE_STATUSES,
   DRAFT_ITEMS,
   EWAY_BILL_THRESHOLD,
@@ -20,6 +21,7 @@ import {
   parseSort,
   summaryWindow,
 } from './challan-insights.rules';
+import { BILLED_QTY_SQL, EPS as QTY_EPS, SENT_QTY_SQL, fullyBilledSql, liveInvoiceSql } from '../invoice/billing.rules';
 import {
   ChallanItemDto,
   ChallanListDto,
@@ -67,10 +69,20 @@ const SEARCH_FIELDS = ['challan_number', 'customer_name', 'vehicle_number', 'ewa
 
 const USER_ATTRS = ['id', 'first_name', 'last_name', 'email'];
 
-/** A live (not cancelled or replaced) invoice of the challan's quotation, newest first. */
+/**
+ * The invoice to link an unbilled challan to — only when its quotation is
+ * already billed in full (so its goods are on an invoice): the newest live
+ * invoice that bills that quotation. Otherwise null: the challan is billed
+ * on an invoice of its own.
+ */
 const quotationInvoiceSql = (col: 'id' | 'invoice_number', alias: string) =>
-  `(SELECT i.${col} FROM invoices i WHERE i.company_id = ${alias}.company_id AND i.quotation_id = ${alias}.quotation_id
-    AND COALESCE(i.status, '') NOT IN (${DEAD_INVOICE_STATUSES.map((s) => `'${s}'`).join(', ')}) ORDER BY i.id DESC LIMIT 1)`;
+  `(SELECT li.${col} FROM invoices li
+     WHERE li.company_id = ${alias}.company_id AND ${liveInvoiceSql('li')}
+       AND ${alias}.quotation_id IS NOT NULL AND ${fullyBilledSql(`${alias}.quotation_id`)}
+       AND (li.quotation_id = ${alias}.quotation_id OR EXISTS (
+             SELECT 1 FROM invoice_items lii JOIN quotation_items lqi ON lqi.id = lii.quotation_item_id
+              WHERE lii.invoice_id = li.id AND lqi.quotation_id = ${alias}.quotation_id))
+     ORDER BY li.id DESC LIMIT 1)`;
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const round3 = (n: number) =>
@@ -929,10 +941,14 @@ export class DeliveryChallanService {
     const reason = parseReason(query.reason);
     const conditions: any[] = [{ company_id: companyId, is_active: 1 }];
     if (filter === 'TO_INVOICE') {
+      // Mirrors TO_INVOICE_SQL: from a quotation, or a sale made without one.
       conditions.push({
         status: { [Op.in]: ['DISPATCHED', 'DELIVERED'] },
-        quotation_id: { [Op.ne]: null },
         invoice_id: null,
+        [Op.or]: [
+          { quotation_id: { [Op.ne]: null } },
+          { customer_id: { [Op.ne]: null }, reason: { [Op.in]: BILLABLE_STANDALONE_REASONS } },
+        ],
       });
     } else if (filter) {
       conditions.push({ status: filter });
@@ -1281,7 +1297,7 @@ export class DeliveryChallanService {
             ORDER BY dc.dispatched_at ASC, dc.id ASC
             LIMIT ${ATTENTION_ITEMS}`),
           rows(`
-            SELECT dc.id, dc.challan_number, dc.customer_name, q.quotation_number, dc.status,
+            SELECT dc.id, dc.challan_number, dc.customer_name, dc.quotation_id, q.quotation_number, dc.status,
                    DATE_FORMAT(${local('COALESCE(dc.delivered_at, dc.dispatched_at)')}, '%Y-%m-%d') AS since,
                    dc.total_value, ${quotationInvoiceSql('invoice_number', 'dc')} AS invoice_number
             FROM delivery_challans dc
@@ -1642,6 +1658,24 @@ export class DeliveryChallanService {
           req.userId,
           transaction,
         );
+
+        // Bill first, send in lots (GST Rule 55(5)): when everything on this
+        // challan was already billed, it travels against that invoice — it is
+        // never "ready to invoice", and its PDF quotes the invoice.
+        if (challan.quotation_id && !challan.invoice_id) {
+          const against = await this.coveringInvoice(id, Number(challan.quotation_id), req.companyId, transaction);
+          if (against) {
+            await challan.update({ invoice_id: against.id }, { transaction });
+            await this.logActivity(
+              id,
+              'AGAINST_INVOICE',
+              { invoice_id: null },
+              { invoice_id: against.id, invoice_number: against.invoice_number },
+              req.userId,
+              transaction,
+            );
+          }
+        }
       });
 
       const details = await this.getChallanDetails(id, req);
@@ -1651,6 +1685,40 @@ export class DeliveryChallanService {
         data: details.data,
       };
     });
+  }
+
+  /**
+   * The invoice a dispatched challan travels against when its goods were
+   * billed before they left: every line is on the quotation and that line's
+   * billed quantity covers everything sent so far, this lot included. Null
+   * when any part still needs billing (it then waits in "Ready to invoice").
+   */
+  private async coveringInvoice(
+    challanId: number,
+    quotationId: number,
+    companyId: number,
+    transaction: Transaction,
+  ): Promise<{ id: number; invoice_number: string } | null> {
+    const [cover]: any[] = await this.dbProvider.sequelize.query(
+      `SELECT COUNT(*) AS n,
+              COALESCE(SUM(qi.id IS NULL), 0) AS loose,
+              COALESCE(SUM(qi.id IS NOT NULL AND ${BILLED_QTY_SQL} + ${QTY_EPS} < ${SENT_QTY_SQL}), 0) AS uncovered
+         FROM delivery_challan_items dci
+         LEFT JOIN quotation_items qi ON qi.id = dci.quotation_item_id AND qi.quotation_id = :q
+        WHERE dci.delivery_challan_id = :id`,
+      { replacements: { id: challanId, q: quotationId }, type: QueryTypes.SELECT, transaction },
+    );
+    if (!cover || Number(cover.n) === 0 || Number(cover.loose) > 0 || Number(cover.uncovered) > 0) return null;
+    const [inv]: any[] = await this.dbProvider.sequelize.query(
+      `SELECT li.id, li.invoice_number FROM invoices li
+        WHERE li.company_id = :c AND ${liveInvoiceSql('li')}
+          AND (li.quotation_id = :q OR EXISTS (
+                SELECT 1 FROM invoice_items lii JOIN quotation_items lqi ON lqi.id = lii.quotation_item_id
+                 WHERE lii.invoice_id = li.id AND lqi.quotation_id = :q))
+        ORDER BY li.id DESC LIMIT 1`,
+      { replacements: { c: companyId, q: quotationId }, type: QueryTypes.SELECT, transaction },
+    );
+    return inv ? { id: Number(inv.id), invoice_number: inv.invoice_number } : null;
   }
 
   async deliverChallan(id: number, req: ChallanRequester) {
@@ -1726,7 +1794,8 @@ export class DeliveryChallanService {
 
         const before = this.snapshotOf(challan);
         await challan.update(
-          { status: 'CANCELLED', cancelled_at: new Date(), updated_by: req.userId },
+          // A lot sent against an invoice comes off it (the invoice still bills those goods).
+          { status: 'CANCELLED', cancelled_at: new Date(), updated_by: req.userId, ...(challan.invoice_id ? { invoice_id: null } : {}) },
           { transaction },
         );
         await this.logActivity(
@@ -1764,6 +1833,12 @@ export class DeliveryChallanService {
     });
   }
 
+  /**
+   * "Make invoice" on one challan. When its quotation is already billed in
+   * full, the goods are on an invoice: the challan is linked to it. Otherwise
+   * a new invoice bills exactly this challan's goods (to bill several
+   * challans on one invoice, use POST /invoice/from-challans).
+   */
   async convertToInvoice(
     id: number,
     paymentDueDate: string,
@@ -1774,133 +1849,81 @@ export class DeliveryChallanService {
     return this.run('convertToInvoice', { companyId: req.companyId, challanId: id }, async () => {
       const challan = await this.findChallan(id, req.companyId);
       if (!challan.quotation_id) {
-        throw new ChallanError(400, 'Only quotation-based challans can be converted');
+        // Its prices and GST are chosen in the invoice editor (POST /invoice/direct with challan_ids).
+        throw new ChallanError(400, 'A challan made without a quotation is billed in the invoice editor — use Make invoice on the challan');
       }
       if (!['DISPATCHED', 'DELIVERED'].includes(challan.status)) {
-        throw new ChallanError(400, 'Only dispatched or delivered challans can be converted');
+        throw new ChallanError(400, 'Only dispatched or delivered challans can be invoiced');
       }
-      const quotationId = Number(challan.quotation_id);
 
-      // Never link a cancelled or replaced invoice (INVOICED challans are
-      // terminal); when a quotation has several, the newest live one wins.
-      const findInvoice = () =>
-        this.db.invoices.findOne({
-          where: {
-            quotation_id: quotationId,
-            company_id: req.companyId,
-            [Op.or]: [{ status: { [Op.notIn]: DEAD_INVOICE_STATUSES } }, { status: null }],
-          },
-          attributes: ['id', 'invoice_number'],
-          order: [['id', 'DESC']],
-        });
-      const assertNoCancelledInvoice = async () => {
-        const cancelled = await this.db.invoices.findOne({
-          where: {
-            quotation_id: quotationId,
-            company_id: req.companyId,
-            status: { [Op.in]: DEAD_INVOICE_STATUSES },
-          },
-          attributes: ['id'],
-        });
-        if (cancelled) {
-          throw new ChallanError(
-            400,
-            "The quotation's invoice was cancelled, so this challan can't be invoiced from it",
-          );
-        }
-      };
+      const [target]: any[] = await this.dbProvider.sequelize.query(
+        `SELECT ${quotationInvoiceSql('id', 'dc')} AS id, ${quotationInvoiceSql('invoice_number', 'dc')} AS invoice_number
+           FROM delivery_challans dc WHERE dc.id = :id`,
+        { replacements: { id }, type: QueryTypes.SELECT },
+      );
 
-      let invoice = await findInvoice();
-      let generated = false;
-      if (!invoice) {
-        await assertNoCancelledInvoice();
-        // Existing invoice flow, unchanged: it runs its own transaction.
+      if (!target?.id) {
+        let result: any;
         try {
-          const result: any = await this.invoiceService.generateInvoice(
-            quotationId,
-            { payment_due_date: paymentDueDate, series_id: seriesId, invoice_date: invoiceDate } as any,
+          result = await this.invoiceService.createFromChallans(
+            { challan_ids: [id], payment_due_date: paymentDueDate, series_id: seriesId, invoice_date: invoiceDate },
             req.userId,
             req.companyId,
           );
-          if (!result?.data) {
-            throw new ChallanError(400, result?.message || 'Failed to generate invoice');
-          }
-          generated = true;
         } catch (error) {
-          if (error instanceof ChallanError) throw error;
-          // Lost a race with a concurrent generation: link whatever exists.
-          invoice = await findInvoice();
-          if (!invoice) {
-            if (error instanceof HttpException) {
-              const response: any = error.getResponse();
-              const message =
-                (typeof response === 'object' && response?.message) || error.message;
-              throw new ChallanError(
-                error.getStatus() >= 500 ? 500 : 400,
-                Array.isArray(message) ? message.join(', ') : String(message),
-              );
-            }
-            throw error;
+          if (error instanceof HttpException) {
+            const response: any = error.getResponse();
+            const message = (typeof response === 'object' && response?.message) || error.message;
+            throw new ChallanError(error.getStatus() >= 500 ? 500 : 400, Array.isArray(message) ? message.join(', ') : String(message));
           }
+          throw error;
         }
-        if (!invoice) invoice = await findInvoice();
-        if (!invoice) throw new ChallanError(500, 'Invoice was not created');
+        const details = await this.getChallanDetails(id, req);
+        return {
+          success: true,
+          message: result.message,
+          data: {
+            challan: details.data,
+            invoice: result.data.invoice,
+            invoice_generated: true,
+            converted_challan_ids: result.data.converted_challan_ids,
+          },
+        };
       }
 
-      const invoiceId = Number(invoice.id);
-      const converted = await this.inTransaction(async (transaction) => {
+      const invoiceId = Number(target.id);
+      await this.inTransaction(async (transaction) => {
         const locked = await this.findChallan(id, req.companyId, transaction, true);
-        if (!['DISPATCHED', 'DELIVERED'].includes(locked.status)) {
-          throw new ChallanError(400, 'Only dispatched or delivered challans can be converted');
+        if (!['DISPATCHED', 'DELIVERED'].includes(locked.status) || locked.invoice_id) {
+          throw new ChallanError(400, 'This challan was billed meanwhile — refresh and check');
         }
-        const siblings = await this.Challans.findAll({
-          where: {
-            company_id: req.companyId,
-            quotation_id: quotationId,
-            is_active: 1,
-            status: { [Op.in]: ['DISPATCHED', 'DELIVERED'] },
+        const before = this.snapshotOf(locked);
+        await locked.update({ status: 'INVOICED', invoice_id: invoiceId, updated_by: req.userId }, { transaction });
+        await this.logActivity(
+          id,
+          'INVOICED',
+          before,
+          {
+            status: 'INVOICED',
+            invoice_id: invoiceId,
+            invoice_number: target.invoice_number,
+            invoice_generated: false,
+            covered_by_invoice: true,
           },
-          order: [['id', 'ASC']],
+          req.userId,
           transaction,
-          lock: transaction.LOCK.UPDATE,
-        });
-        for (const c of siblings) {
-          const before = this.snapshotOf(c);
-          await c.update(
-            { status: 'INVOICED', invoice_id: invoiceId, updated_by: req.userId },
-            { transaction },
-          );
-          await this.logActivity(
-            Number(c.id),
-            'INVOICED',
-            before,
-            {
-              status: 'INVOICED',
-              invoice_id: invoiceId,
-              invoice_number: invoice.invoice_number,
-              invoice_generated: generated,
-              triggered_by_challan_id: id,
-            },
-            req.userId,
-            transaction,
-          );
-        }
-        return siblings.map((c: any) => Number(c.id));
+        );
       });
 
       const details = await this.getChallanDetails(id, req);
-      const alsoText =
-        converted.length > 1 ? ` — all ${converted.length} challans of this quotation are now invoiced` : '';
       return {
         success: true,
-        message: generated
-          ? `Invoice ${invoice.invoice_number} created${alsoText}`
-          : `Linked to invoice ${invoice.invoice_number}${alsoText}`,
+        message: `Linked to invoice ${target.invoice_number} — its quotation is billed in full there`,
         data: {
           challan: details.data,
-          invoice: { id: invoiceId, invoice_number: invoice.invoice_number },
-          invoice_generated: generated,
-          converted_challan_ids: converted,
+          invoice: { id: invoiceId, invoice_number: target.invoice_number },
+          invoice_generated: false,
+          converted_challan_ids: [id],
         },
       };
     });

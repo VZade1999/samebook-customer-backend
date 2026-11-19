@@ -5,7 +5,9 @@ import {
   Transaction,
   WhereOptions,
   Includeable,
+  literal,
 } from 'sequelize';
+import { fullyBilledSql, liveInvoiceSql } from '../invoice/billing.rules';
 
 import { AppLogger } from '../common/logger/logger.service';
 import { DocumentType } from '../common/enums/document-type.enum';
@@ -38,7 +40,7 @@ import {
   getStateCodeFromName,
 } from '../common/gst-state.util';
 import { DocumentSeriesService } from '../document-series/document-series.service';
-import { addDays, parseTz, todayIn } from '../dashboard/dashboard.rules';
+import { DEFAULT_TZ_MINUTES, addDays, parseTz, todayIn } from '../dashboard/dashboard.rules';
 import {
   APPROVED_STATUSES,
   EXPIRING_DAYS,
@@ -48,12 +50,16 @@ import {
   QUOTE_DATE_SQL,
   STAGE_SQL,
   Sort,
+  approveBlocker,
   buildSummary,
   closeBlocker,
   closeReasonLabel,
+  editBlocker,
   parseClose,
   parseListFilter,
+  parsePo,
   parseSort,
+  poBlocker,
   reopenBlocker,
   reopenStatus,
   summaryWindow,
@@ -271,6 +277,11 @@ export class QuotationService {
               [Op.like]: `%${query.search}%`,
             },
           },
+          {
+            customer_po_number: {
+              [Op.like]: `%${query.search}%`,
+            },
+          },
         ],
       });
     }
@@ -436,6 +447,7 @@ export class QuotationService {
           'website',
           'industry',
           'notes',
+          'po_required',
         ],
 
         include: [
@@ -889,9 +901,36 @@ export class QuotationService {
     transaction?: Transaction,
   ): Promise<quotations | null> {
     return this.Quotations.findByPk(id, {
+      attributes: { include: this.linkAttributes() },
       include: this.buildQuotationDetailIncludes(),
       transaction,
     });
+  }
+
+  /**
+   * What was sent and billed against the quotation, for the screens: editing
+   * locks once it has live challans, "Create invoice" stays while something
+   * is left to bill, and ready_challans says how many wait to be billed.
+   */
+  private linkAttributes(): any[] {
+    const self = '`quotations`';
+    return [
+      [
+        literal(
+          `(SELECT COUNT(*) FROM delivery_challans dc WHERE dc.company_id = ${self}.company_id AND dc.quotation_id = ${self}.id
+             AND dc.is_active = 1 AND dc.status <> 'CANCELLED')`,
+        ),
+        'live_challans',
+      ],
+      [
+        literal(
+          `(SELECT COUNT(*) FROM delivery_challans dc WHERE dc.company_id = ${self}.company_id AND dc.quotation_id = ${self}.id
+             AND dc.is_active = 1 AND dc.status IN ('DISPATCHED', 'DELIVERED') AND dc.invoice_id IS NULL)`,
+        ),
+        'ready_challans',
+      ],
+      [literal(fullyBilledSql(`${self}.id`)), 'fully_billed'],
+    ];
   }
 
   async getQuotations(
@@ -980,6 +1019,8 @@ export class QuotationService {
         }),
         this.Quotations.findAndCountAll({
           where: whereClause,
+
+          attributes: { include: this.linkAttributes() },
 
           include: includeRelations,
 
@@ -1447,6 +1488,26 @@ export class QuotationService {
         };
       }
 
+      // Locked once goods were sent or billed against it: an edit rebuilds the
+      // items (new ids) and resets the status, which would cut challans and
+      // invoices loose from what they were made for.
+      const [links]: any[] = await this.dbProvider.sequelize.query(
+        `SELECT
+           (SELECT COUNT(*) FROM delivery_challans dc
+             WHERE dc.company_id = :c AND dc.quotation_id = :id AND dc.is_active = 1 AND dc.status <> 'CANCELLED') AS challans,
+           (SELECT COUNT(*) FROM invoices li
+             WHERE li.company_id = :c AND ${liveInvoiceSql('li')}
+               AND (li.quotation_id = :id OR EXISTS (
+                     SELECT 1 FROM invoice_items lii JOIN quotation_items lqi ON lqi.id = lii.quotation_item_id
+                      WHERE lii.invoice_id = li.id AND lqi.quotation_id = :id))) AS invoices`,
+        { replacements: { id: quotation.id, c: companyId }, type: QueryTypes.SELECT, transaction },
+      );
+      const locked = editBlocker(links || {});
+      if (locked) {
+        await transaction.rollback();
+        return { success: false, message: locked, data: null };
+      }
+
       const currentVersion = Number(quotation.version_number || 1);
       const changedBy = data.user_id ?? quotation.updated_by;
       const oldSnapshot = quotation.toJSON();
@@ -1548,12 +1609,14 @@ export class QuotationService {
 
       await quotation.update(updatePayload, { transaction });
 
-      await this.QuotationItems.destroy({
-        where: { quotation_id: quotation.id },
-        transaction,
-      });
-
+      // Replace the items only when new ones are sent — an update without
+      // items (e.g. just the notes) used to delete them all.
       if (data.items?.length) {
+        await this.QuotationItems.destroy({
+          where: { quotation_id: quotation.id },
+          transaction,
+        });
+
         const itemsPayload = this.buildItemPayloads(data.items, quotation.id);
 
         await this.QuotationItems.bulkCreate(itemsPayload, {
@@ -1867,10 +1930,30 @@ export class QuotationService {
     }
   }
 
+  /** The PO rules for this quotation's customer ("PO required" customers must give one). */
+  private async checkPo(
+    quotation: quotations,
+    body: { customer_po_number?: unknown; customer_po_date?: unknown } | null | undefined,
+    transaction: Transaction,
+  ) {
+    const customer = quotation.customer_id
+      ? await this.Customers.findOne({
+          where: { id: quotation.customer_id, company_id: quotation.company_id },
+          attributes: ['id', 'po_required'],
+          transaction,
+        })
+      : null;
+    return parsePo(body, {
+      today: todayIn(new Date(), DEFAULT_TZ_MINUTES),
+      required: Number(customer?.po_required) === 1,
+    });
+  }
+
   async approveQuotation(
     id: number,
     companyId: number,
     userId?: number,
+    body?: { customer_po_number?: unknown; customer_po_date?: unknown },
   ): Promise<IServiceResponse> {
     const log = this.getLog('approveQuotation', { quotationId: id });
     log.info('Approving quotation');
@@ -1880,6 +1963,7 @@ export class QuotationService {
     try {
       const quotation = await this.Quotations.findByPk(id, {
         transaction,
+        lock: transaction.LOCK.UPDATE,
       });
 
       if (!quotation || quotation.company_id !== companyId) {
@@ -1893,13 +1977,11 @@ export class QuotationService {
         };
       }
 
-      // Deleted, already-approved or invoiced quotations must not be
+      // Deleted, already-approved, closed or invoiced quotations must not be
       // (re-)approved — otherwise a soft-deleted quotation could be revived
-      // and invoiced.
-      if (
-        ['DELETED', 'APPROVED', 'INVOICED'].includes(quotation.status ?? '') ||
-        quotation.has_invoice
-      ) {
+      // and invoiced, or a dispatched one pushed back to plain "approved".
+      const blocked = approveBlocker(quotation);
+      if (blocked) {
         await transaction.rollback();
         log.warn('Quotation cannot be approved in its current status', {
           quotationId: id,
@@ -1908,9 +1990,15 @@ export class QuotationService {
 
         return {
           success: false,
-          message: `Quotation cannot be approved in status ${quotation.status}`,
+          message: blocked,
           data: null,
         };
+      }
+
+      const po = await this.checkPo(quotation, body, transaction);
+      if (!po.ok) {
+        await transaction.rollback();
+        return { success: false, message: po.message, data: null };
       }
 
       const currentVersion = Number(quotation.version_number || 1);
@@ -1932,6 +2020,8 @@ export class QuotationService {
           status: 'APPROVED',
           version_number: currentVersion + 1,
           updated_by: changedBy,
+          customer_po_number: po.number,
+          customer_po_date: po.date,
         },
         { transaction },
       );
@@ -1958,7 +2048,9 @@ export class QuotationService {
 
       return {
         success: true,
-        message: 'Quotation approved successfully',
+        message: po.number
+          ? `${quotation.quotation_number} approved with PO ${po.number}`
+          : `${quotation.quotation_number} approved`,
         data: updatedQuotation,
       };
     } catch (error: unknown) {
@@ -1970,6 +2062,63 @@ export class QuotationService {
         message: 'Failed to approve quotation',
         data: null,
       };
+    }
+  }
+
+  /**
+   * Adds, changes or clears the customer's PO on an approved quotation. It
+   * locks once an invoice is made, because the invoice prints it.
+   */
+  async setCustomerPo(
+    id: number,
+    companyId: number,
+    userId: number,
+    body: { customer_po_number?: unknown; customer_po_date?: unknown },
+  ): Promise<IServiceResponse> {
+    const log = this.getLog('setCustomerPo', { quotationId: id, companyId });
+    const transaction = await this.dbProvider.sequelize.transaction();
+    try {
+      const quotation = await this.Quotations.findOne({
+        where: { id, company_id: companyId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!quotation) {
+        await transaction.rollback();
+        return { success: false, message: 'Quotation not found', data: null };
+      }
+      const blocked = poBlocker(quotation);
+      if (blocked) {
+        await transaction.rollback();
+        return { success: false, message: blocked, data: null };
+      }
+      const po = await this.checkPo(quotation, body, transaction);
+      if (!po.ok) {
+        await transaction.rollback();
+        return { success: false, message: po.message, data: null };
+      }
+
+      const before = { customer_po_number: quotation.customer_po_number ?? null, customer_po_date: quotation.customer_po_date ?? null };
+      const after = { customer_po_number: po.number, customer_po_date: po.date };
+      if (before.customer_po_number === after.customer_po_number && before.customer_po_date === after.customer_po_date) {
+        await transaction.rollback();
+        return { success: true, message: 'Nothing changed', data: await this.fetchQuotationById(id) };
+      }
+
+      await quotation.update({ ...after, updated_by: userId }, { transaction });
+      await this.createActivityLog(quotation.id, 'PO_UPDATED', before, after, userId, transaction);
+      await transaction.commit();
+      log.info('Customer PO updated', { cleared: !po.number });
+
+      return {
+        success: true,
+        message: po.number ? `PO ${po.number} saved on ${quotation.quotation_number}` : `PO removed from ${quotation.quotation_number}`,
+        data: await this.fetchQuotationById(id),
+      };
+    } catch (error: unknown) {
+      await transaction.rollback();
+      log.error('Failed to update customer PO', error as Error);
+      return { success: false, message: "The PO wasn't saved. Please try again.", data: null };
     }
   }
 
@@ -2003,6 +2152,20 @@ export class QuotationService {
       if (blocked) {
         await transaction.rollback();
         return { success: false, message: blocked, data: null };
+      }
+      // Challans made against it tie it to real goods: it can't be closed as lost.
+      const [challans]: any[] = await this.dbProvider.sequelize.query(
+        `SELECT COUNT(*) AS n FROM delivery_challans dc
+          WHERE dc.company_id = :c AND dc.quotation_id = :id AND dc.is_active = 1 AND dc.status <> 'CANCELLED'`,
+        { replacements: { id: quotation.id, c: companyId }, type: QueryTypes.SELECT, transaction },
+      );
+      if (Number(challans?.n) > 0) {
+        await transaction.rollback();
+        return {
+          success: false,
+          message: "This quotation has delivery challans, so it can't be closed. Cancel or delete them first.",
+          data: null,
+        };
       }
 
       const before = quotation.toJSON();

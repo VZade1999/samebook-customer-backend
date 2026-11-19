@@ -28,6 +28,14 @@ export interface invoiceItemsAttributes {
 
   total?: number;
 
+  // What the line bills: the ordered quotation line, and — for invoices made
+  // from delivery challans — the challan and challan line it came from.
+  quotation_item_id?: number | null;
+
+  delivery_challan_id?: number | null;
+
+  delivery_challan_item_id?: number | null;
+
   created_at?: Date;
 }
 
@@ -42,6 +50,9 @@ export type invoiceItemsOptionalAttributes =
   | 'discount_amount'
   | 'discounted_rate'
   | 'total'
+  | 'quotation_item_id'
+  | 'delivery_challan_id'
+  | 'delivery_challan_item_id'
   | 'created_at';
 
 export type invoiceItemsCreationAttributes =
@@ -81,6 +92,12 @@ export class invoice_items
 
   total?: number;
 
+  quotation_item_id?: number | null;
+
+  delivery_challan_id?: number | null;
+
+  delivery_challan_item_id?: number | null;
+
   created_at?: Date;
 
   static initModel(
@@ -115,8 +132,9 @@ export class invoice_items
           allowNull: true,
         },
 
+        // 3 decimals, like challan quantities, so billed = sent exactly.
         qty: {
-          type: DataTypes.DECIMAL(12, 2),
+          type: DataTypes.DECIMAL(14, 3),
           allowNull: true,
           defaultValue: 1,
         },
@@ -154,6 +172,21 @@ export class invoice_items
           type: DataTypes.DECIMAL(12, 2),
           allowNull: true,
           defaultValue: 0.0,
+        },
+
+        quotation_item_id: {
+          type: DataTypes.BIGINT,
+          allowNull: true,
+        },
+
+        delivery_challan_id: {
+          type: DataTypes.BIGINT,
+          allowNull: true,
+        },
+
+        delivery_challan_item_id: {
+          type: DataTypes.BIGINT,
+          allowNull: true,
         },
 
         created_at: {

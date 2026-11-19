@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Put,
   Req,
   Res,
   UseGuards,
@@ -32,6 +33,31 @@ export class CompanyController {
     private readonly companyService: CompanyService,
     private readonly appLogger: AppLogger,
   ) {}
+
+  // "How do you sell?" — read by every screen (it only changes defaults), so
+  // any signed-in user of the company can read it; changing it is an admin's.
+  @Get('/sales-flow')
+  async getSalesFlow(@Req() req: Request, @Res() res: Response) {
+    try {
+      const response = await this.companyService.getSalesFlow(this.getRequester(req));
+      if (!response.success) return failedRes(res, response.message, 404);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  @Put('/sales-flow')
+  @RequirePermissions('companies.edit')
+  async setSalesFlow(@Req() req: Request, @Res() res: Response, @Body() body: { sales_flow?: unknown }) {
+    try {
+      const response = await this.companyService.setSalesFlow(this.getRequester(req), body?.sales_flow);
+      if (!response.success) return failedRes(res, response.message, 400);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
 
   @Get('/details/:id')
   @RequirePermissions('companies.view')

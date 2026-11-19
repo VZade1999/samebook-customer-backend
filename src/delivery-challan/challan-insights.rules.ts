@@ -50,15 +50,26 @@ export const ATTENTION_ITEMS = 6;
 export const DRAFT_ITEMS = 4;
 export const BACKLOG_ITEMS = 5;
 
-/** Dispatched or delivered, made from a quotation, no invoice linked yet. */
-export const TO_INVOICE_SQL = `(dc.status IN ('DISPATCHED', 'DELIVERED') AND dc.quotation_id IS NOT NULL AND dc.invoice_id IS NULL)`;
+/**
+ * Challans made without a quotation that are still a sale to bill: goods
+ * sold or sent on approval to a customer. Job work, repair, exhibition and
+ * own-warehouse transfers are never billed.
+ */
+export const BILLABLE_STANDALONE_REASONS = ['SALE', 'PARTIAL_SUPPLY', 'SUPPLY_ON_APPROVAL'];
+
+/**
+ * Dispatched or delivered, no invoice linked yet, and made from a quotation —
+ * or a sale to a customer made without one (billed in the invoice editor).
+ */
+export const TO_INVOICE_SQL = `(dc.status IN ('DISPATCHED', 'DELIVERED') AND dc.invoice_id IS NULL
+  AND (dc.quotation_id IS NOT NULL OR (dc.customer_id IS NOT NULL AND dc.reason IN ('SALE', 'PARTIAL_SUPPLY', 'SUPPLY_ON_APPROVAL'))))`;
 
 /** Same rule as TO_INVOICE_SQL, for one row in code. */
-export const isToInvoice = (c: { status?: string | null; quotation_id?: unknown; invoice_id?: unknown }) =>
+export const isToInvoice = (c: { status?: string | null; quotation_id?: unknown; invoice_id?: unknown; customer_id?: unknown; reason?: unknown }) =>
   (c.status === 'DISPATCHED' || c.status === 'DELIVERED') &&
-  c.quotation_id !== null &&
-  c.quotation_id !== undefined &&
-  (c.invoice_id === null || c.invoice_id === undefined);
+  (c.invoice_id === null || c.invoice_id === undefined) &&
+  ((c.quotation_id !== null && c.quotation_id !== undefined) ||
+    (c.customer_id !== null && c.customer_id !== undefined && BILLABLE_STANDALONE_REASONS.includes(String(c.reason ?? ''))));
 
 /** Invoices that are cancelled or replaced are never linked to a challan. */
 export const DEAD_INVOICE_STATUSES = ['CANCELLED', 'SUPERSEDED'];
@@ -141,6 +152,8 @@ export interface SummaryInput {
     id: unknown;
     challan_number: string;
     customer_name: string | null;
+    /** Null for a sale made without a quotation (billed in the invoice editor). */
+    quotation_id?: unknown;
     quotation_number: string | null;
     status: string;
     since: string | null;
@@ -274,6 +287,7 @@ export const buildSummary = (inp: SummaryInput) => {
         id: num(r.id),
         challan_number: r.challan_number,
         customer_name: r.customer_name || '—',
+        quotation_id: r.quotation_id === null || r.quotation_id === undefined ? null : num(r.quotation_id),
         quotation_number: r.quotation_number || null,
         status: r.status,
         since: r.since,

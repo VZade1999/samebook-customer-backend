@@ -10,6 +10,7 @@ import { UpdateCompanyDto } from './dto/updateCompany.dto';
 import { CompanyMapper } from './mappers/company.mapper';
 import { getStateCodeFromGstin } from '../common/gst-state.util';
 import { CacheService, companyScope } from '../common/cache/cache.service';
+import { parseSalesFlow, storedSalesFlow } from './sales-flow.rules';
 
 // Identity context passed down from the controller (and from the AI agent's
 // tool-calling path, which invokes this service directly) for every call.
@@ -80,6 +81,26 @@ export class CompanyService {
     } catch {
       return undefined;
     }
+  }
+
+  /** "How do you sell?" — null until someone chooses (admins are asked once). */
+  async getSalesFlow(requester: CompanyRequester) {
+    const company = await this.Companies.findOne({
+      where: { id: requester.companyId, is_active: 1 },
+      attributes: ['id', 'sales_flow'],
+    });
+    if (!company) return { success: false, message: 'Company not found' };
+    return { success: true, message: 'Sales flow', data: { sales_flow: storedSalesFlow(company.sales_flow) } };
+  }
+
+  async setSalesFlow(requester: CompanyRequester, value: unknown) {
+    const flow = parseSalesFlow(value);
+    if (!flow) return { success: false, message: 'Choose how your business usually sells' };
+    // Looked up first: an UPDATE that changes nothing reports 0 rows (the same choice saved twice).
+    const company = await this.Companies.findOne({ where: { id: requester.companyId, is_active: 1 }, attributes: ['id', 'sales_flow'] });
+    if (!company) return { success: false, message: 'Company not found' };
+    if (company.sales_flow !== flow) await this.Companies.update({ sales_flow: flow }, { where: { id: company.id } });
+    return { success: true, message: 'Saved — the screens now follow how you sell', data: { sales_flow: flow } };
   }
 
   async getCompanyById(id: number, requester: CompanyRequester) {

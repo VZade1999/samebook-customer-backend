@@ -4,7 +4,8 @@ import { DataTypes, Model, Optional } from 'sequelize';
 export interface invoicesAttributes {
   id: number;
 
-  quotation_id: number;
+  /** The quotation it bills from; null for an invoice made without one. */
+  quotation_id?: number | null;
 
   company_id: number;
 
@@ -84,6 +85,15 @@ export interface invoicesAttributes {
 
   generated_by?: number;
 
+  // Dispatch details when the invoice itself travels with the goods.
+  transporter_name?: string | null;
+
+  vehicle_number?: string | null;
+
+  lr_number?: string | null;
+
+  eway_bill_number?: string | null;
+
   created_at?: Date;
 
   updated_at?: Date;
@@ -95,6 +105,11 @@ export type invoicesId = invoices[invoicesPk];
 
 export type invoicesOptionalAttributes =
   | 'id'
+  | 'quotation_id'
+  | 'transporter_name'
+  | 'vehicle_number'
+  | 'lr_number'
+  | 'eway_bill_number'
   | 'quotation_number'
   | 'document_type'
   | 'daily_sequence'
@@ -146,7 +161,11 @@ export class invoices
   implements invoicesAttributes
 {
   id!: number;
-  quotation_id!: number;
+  quotation_id?: number | null;
+  transporter_name?: string | null;
+  vehicle_number?: string | null;
+  lr_number?: string | null;
+  eway_bill_number?: string | null;
   company_id!: number;
   customer_id!: number;
   invoice_number!: string;
@@ -221,9 +240,26 @@ export class invoices
           primaryKey: true,
         },
 
+        // Optional: an invoice can be made without a quotation.
         quotation_id: {
           type: DataTypes.BIGINT,
-          allowNull: false,
+          allowNull: true,
+        },
+        transporter_name: {
+          type: DataTypes.STRING(255),
+          allowNull: true,
+        },
+        vehicle_number: {
+          type: DataTypes.STRING(32),
+          allowNull: true,
+        },
+        lr_number: {
+          type: DataTypes.STRING(50),
+          allowNull: true,
+        },
+        eway_bill_number: {
+          type: DataTypes.STRING(32),
+          allowNull: true,
         },
 
         company_id: {

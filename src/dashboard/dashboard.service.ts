@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { QueryTypes } from 'sequelize';
 import { AppLogger } from '../common/logger/logger.service';
 import { CompanyModulesService } from '../company-modules/company-modules.service';
+import { TO_INVOICE_SQL } from '../delivery-challan/challan-insights.rules';
 import {
   DashboardAccess,
   DashboardRange,
@@ -236,10 +237,11 @@ export class DashboardService {
       cols.push(`(SELECT COUNT(*) FROM products WHERE company_id = :c AND COALESCE(is_active, 1) = 1) AS products_active`);
     }
     if (a.challans) {
-      cols.push(`(SELECT COUNT(*) FROM delivery_challans WHERE company_id = :c AND COALESCE(is_active, 1) = 1
-          AND status IN ('DISPATCHED', 'DELIVERED') AND quotation_id IS NOT NULL AND invoice_id IS NULL) AS challans_awaiting`);
-      cols.push(`(SELECT COALESCE(SUM(total_value), 0) FROM delivery_challans WHERE company_id = :c AND COALESCE(is_active, 1) = 1
-          AND status IN ('DISPATCHED', 'DELIVERED') AND quotation_id IS NOT NULL AND invoice_id IS NULL) AS challans_awaiting_value`);
+      // Same rule as the challan page's "Ready to invoice" (TO_INVOICE_SQL).
+      cols.push(`(SELECT COUNT(*) FROM delivery_challans dc WHERE dc.company_id = :c AND COALESCE(dc.is_active, 1) = 1
+          AND ${TO_INVOICE_SQL}) AS challans_awaiting`);
+      cols.push(`(SELECT COALESCE(SUM(dc.total_value), 0) FROM delivery_challans dc WHERE dc.company_id = :c AND COALESCE(dc.is_active, 1) = 1
+          AND ${TO_INVOICE_SQL}) AS challans_awaiting_value`);
     }
     if (a.quotations) {
       // Open pipeline: shared or approved (dispatching doesn't undo that), not
