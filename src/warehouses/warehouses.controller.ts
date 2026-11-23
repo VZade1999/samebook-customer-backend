@@ -108,6 +108,19 @@ export class WarehousesController {
     }
   }
 
+  /** Make a warehouse the default — where new stock and new products go. */
+  @Post('/:id/default')
+  @RequirePermissions('warehouses.edit')
+  async setDefault(@Req() req: Request, @Res() res: Response, @Param('id', ParseIntPipe) id: number) {
+    try {
+      const response = await this.warehousesService.setDefault(id, this.getRequester(req));
+      if (!response.success) return failedRes(res, response.message);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
   @Post('/delete/:id')
   @RequirePermissions('warehouses.delete')
   async deleteWarehouse(

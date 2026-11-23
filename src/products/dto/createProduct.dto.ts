@@ -5,6 +5,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -68,10 +69,13 @@ export class CreateProductDto {
   @Min(0)
   minimum_stock?: number;
 
+  // Ignored: the product always goes to the signed-in person's company.
+  // Optional so a client doesn't have to send it.
+  @IsOptional()
   @IsInt()
   @Type(() => Number)
   @Min(1)
-  company_id: number;
+  company_id?: number;
 
   @IsOptional()
   @Type(() => Number)
@@ -82,6 +86,19 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   image_url?: string;
+
+  /** Where it's kept. With stock_quantity > 0 and no warehouse, the default warehouse is used. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  warehouse_id?: number;
+
+  /** Rack / shelf in that warehouse. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  bin_location?: string;
 
   @IsOptional()
   @ValidateNested({ each: true })

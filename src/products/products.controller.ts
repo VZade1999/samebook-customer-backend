@@ -24,6 +24,7 @@ import { CreateProductDto } from './dto/createProduct.dto';
 import { UpdateProductDto } from './dto/updateProduct.dto';
 import { ProductsListDto } from './products-list.dto';
 import { ProductService } from './products.service';
+import { ProductCatalogService } from './product-catalog.service';
 import { AuthGuard } from '../middlewares/auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
@@ -38,6 +39,7 @@ import { CurrentUser } from '../common/interfaces/urrent-user.interface';
 export class ProductController {
   constructor(
     private readonly productService: ProductService,
+    private readonly catalogService: ProductCatalogService,
     private readonly appLogger: AppLogger,
   ) {}
 
@@ -97,6 +99,57 @@ export class ProductController {
       log.error('Unhandled error in productsList', error);
       return errorRes(res, error);
     }
+  }
+
+  // ── Products page (declared before the /:id routes) ──────────────────────
+
+  /** Every product with how it sells, the tile counts, filters, search and sorting. */
+  @Get('/catalog')
+  @RequirePermissions('products.view')
+  async catalog(@Req() req: any, @Query() query: any) {
+    return this.catalogService.catalog(req.user?.company_id, req.user?.permissions || [], query || {});
+  }
+
+  /** Is this name already used by another active product? (The Add / Edit form warns.) */
+  @Get('/name-check')
+  @RequirePermissions('products.view')
+  async nameCheck(@Req() req: any, @Query('name') name: string, @Query('except') except?: string) {
+    return { taken: await this.catalogService.nameTaken(req.user?.company_id, String(name || ''), Number(except) || 0) };
+  }
+
+  /** Raise, cut or set the price of many products at once. */
+  @Post('/bulk-price')
+  @RequirePermissions('products.edit')
+  async bulkPrice(@Req() req: any, @Body() body: any) {
+    return this.catalogService.bulkPrice(req.user?.company_id, body);
+  }
+
+  /** Put many products in one category (or none). */
+  @Post('/bulk-category')
+  @RequirePermissions('products.edit')
+  async bulkCategory(@Req() req: any, @Body() body: any) {
+    return this.catalogService.bulkCategory(req.user?.company_id, body);
+  }
+
+  /** Archive many products at once (they can be restored). */
+  @Post('/bulk-archive')
+  @RequirePermissions('products.delete')
+  async bulkArchive(@Req() req: any, @Body() body: any) {
+    return this.catalogService.bulkArchive(req.user?.company_id, body);
+  }
+
+  /** Bring an archived product back. */
+  @Post('/:id/restore')
+  @RequirePermissions('products.edit')
+  async restore(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.catalogService.restore(req.user?.company_id, id);
+  }
+
+  /** A product's rates, buyers and recent quotations, challans and invoices. */
+  @Get('/:id/activity')
+  @RequirePermissions('products.view')
+  async activity(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.catalogService.activity(req.user?.company_id, id, req.user?.permissions || []);
   }
 
   @Delete('/:id')

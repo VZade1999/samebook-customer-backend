@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { QueryTypes } from 'sequelize';
 import { AppLogger } from '../common/logger/logger.service';
 import { CacheService, companyScope } from '../common/cache/cache.service';
 import { CreateWarehouseDto } from './dto/createWarehouse.dto';
@@ -21,10 +22,6 @@ export class WarehousesService {
 
   private get Warehouses() {
     return this.dbProvider.db.warehouses;
-  }
-
-  private get Inventory() {
-    return this.dbProvider.db.product_inventory;
   }
 
   async listWarehouses(requester: WarehouseRequester) {
@@ -53,6 +50,35 @@ export class WarehousesService {
     }
   }
 
+  private sql(sql: string, replacements: Record<string, unknown>, transaction?: any) {
+    return this.dbProvider.sequelize.query(sql, { type: QueryTypes.SELECT, replacements, transaction }) as Promise<any[]>;
+  }
+
+  /** Another active warehouse of the company with this name (trimmed, any case). */
+  private async nameTaken(companyId: number, name: string, exceptId = 0) {
+    const [hit] = await this.sql(
+      `SELECT id FROM warehouses WHERE company_id = :c AND is_active = 1 AND id <> :x AND LOWER(TRIM(name)) = LOWER(TRIM(:n)) LIMIT 1`,
+      { c: companyId, x: exceptId, n: name },
+    );
+    return !!hit;
+  }
+
+  /** Makes this the company's one default warehouse. */
+  private async makeDefault(companyId: number, id: number, transaction?: any) {
+    await this.dbProvider.sequelize.query(
+      `UPDATE warehouses SET is_default = CASE WHEN id = :id THEN 1 ELSE 0 END WHERE company_id = :c`,
+      { replacements: { id, c: companyId }, transaction },
+    );
+  }
+
+  /** When no active warehouse is the default, the oldest active one becomes it. */
+  private async ensureDefault(companyId: number, transaction?: any) {
+    const [has] = await this.sql(`SELECT id FROM warehouses WHERE company_id = :c AND is_active = 1 AND is_default = 1 LIMIT 1`, { c: companyId }, transaction);
+    if (has) return;
+    const [oldest] = await this.sql(`SELECT id FROM warehouses WHERE company_id = :c AND is_active = 1 ORDER BY id LIMIT 1`, { c: companyId }, transaction);
+    if (oldest) await this.makeDefault(companyId, Number(oldest.id), transaction);
+  }
+
   async createWarehouse(data: CreateWarehouseDto, requester: WarehouseRequester) {
     const log = this.appLogger.forContext('WarehousesService', 'createWarehouse', {
       companyId: requester.companyId,
@@ -60,20 +86,37 @@ export class WarehousesService {
 
     log.info('Create warehouse attempt started');
 
+    const name = String(data.name ?? '').trim();
+    if (!name) return { success: false, message: 'Give the warehouse a name' };
+    if (await this.nameTaken(requester.companyId, name)) {
+      return { success: false, message: `You already have a warehouse called "${name}"` };
+    }
+
     try {
       const warehouse = await this.Warehouses.create({
         company_id: requester.companyId,
-        name: data.name,
-        address: data.address ?? null,
-        city: data.city ?? null,
-        state: data.state ?? null,
+        name,
+        address: data.address?.trim() || null,
+        city: data.city?.trim() || null,
+        state: data.state?.trim() || null,
       });
+      // The first warehouse — or one asked to be — is the default.
+      if (data.is_default) await this.makeDefault(requester.companyId, Number(warehouse.id));
+      else await this.ensureDefault(requester.companyId);
       log.info('Warehouse created successfully');
-      return { success: true, message: 'Warehouse created successfully', data: warehouse };
+      return { success: true, message: `${name} added`, data: warehouse };
     } catch (err) {
       log.error('DB error while creating warehouse', err);
       throw new Error('DATABASE_ERROR');
     }
+  }
+
+  /** Makes a warehouse the one new stock and new products go to. */
+  async setDefault(id: number, requester: WarehouseRequester) {
+    const [w] = await this.sql(`SELECT id, name FROM warehouses WHERE id = :id AND company_id = :c AND is_active = 1`, { id, c: requester.companyId });
+    if (!w) return { success: false, message: `Warehouse with id ${id} not found` };
+    await this.makeDefault(requester.companyId, id);
+    return { success: true, message: `${w.name} is now your default warehouse`, data: { id } };
   }
 
   async updateWarehouse(id: number, data: UpdateWarehouseDto, requester: WarehouseRequester) {
@@ -92,15 +135,24 @@ export class WarehousesService {
       return { success: false, message: `Warehouse with id ${id} not found` };
     }
 
+    const name = data.name !== undefined ? String(data.name).trim() : undefined;
+    if (name !== undefined) {
+      if (!name) return { success: false, message: 'Give the warehouse a name' };
+      if (await this.nameTaken(requester.companyId, name, id)) {
+        return { success: false, message: `You already have a warehouse called "${name}"` };
+      }
+    }
+
     try {
       await warehouse.update({
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.address !== undefined && { address: data.address }),
-        ...(data.city !== undefined && { city: data.city }),
-        ...(data.state !== undefined && { state: data.state }),
+        ...(name !== undefined && { name }),
+        ...(data.address !== undefined && { address: data.address?.trim() || null }),
+        ...(data.city !== undefined && { city: data.city?.trim() || null }),
+        ...(data.state !== undefined && { state: data.state?.trim() || null }),
       });
+      if (data.is_default === true) await this.makeDefault(requester.companyId, id);
       log.info('Warehouse updated successfully');
-      return { success: true, message: 'Warehouse updated successfully', data: warehouse };
+      return { success: true, message: `${name ?? warehouse.name} saved`, data: warehouse };
     } catch (err) {
       log.error('DB error while updating warehouse', err);
       throw new Error('DATABASE_ERROR');
@@ -123,21 +175,38 @@ export class WarehousesService {
       return { success: false, message: `Warehouse with id ${id} not found` };
     }
 
-    const inventoryInUse = await this.Inventory.count({
-      where: { warehouse_id: id, is_active: 1 },
-    });
-    if (inventoryInUse > 0) {
-      log.warn('Delete rejected — warehouse still in use by inventory records');
+    // Only an empty warehouse can be archived: stock must be moved out first.
+    const [held] = await this.sql(
+      `SELECT COUNT(DISTINCT product_id) AS products, COALESCE(SUM(stock_level), 0) AS units
+       FROM product_inventory WHERE warehouse_id = :id AND is_active = 1 AND stock_level <> 0`,
+      { id },
+    );
+    if (Number(held?.units) !== 0 || Number(held?.products) > 0) {
+      log.warn('Archive rejected — warehouse still holds stock');
       return {
         success: false,
-        message: `Cannot delete — ${inventoryInUse} inventory record(s) still use this warehouse`,
+        message: `${warehouse.name} still holds ${Number(held.units)} units of ${Number(held.products)} product(s) — move them to another warehouse first`,
       };
     }
 
     try {
-      await warehouse.update({ is_active: 0 });
+      const t = await this.dbProvider.sequelize.transaction();
+      try {
+        await warehouse.update({ is_active: 0 }, { transaction: t });
+        // Products it merely listed (stock 0) stop being kept there.
+        await this.dbProvider.sequelize.query(
+          `UPDATE product_inventory SET is_active = 0, updated_at = NOW() WHERE warehouse_id = :id AND is_active = 1 AND stock_level = 0`,
+          { replacements: { id }, transaction: t },
+        );
+        await this.dbProvider.sequelize.query(`UPDATE warehouses SET is_default = 0 WHERE id = :id`, { replacements: { id }, transaction: t });
+        await this.ensureDefault(requester.companyId, t);
+        await t.commit();
+      } catch (e) {
+        await t.rollback();
+        throw e;
+      }
       log.info('Warehouse deleted successfully');
-      return { success: true, message: 'Warehouse deleted successfully', data: { id } };
+      return { success: true, message: `${warehouse.name} archived`, data: { id } };
     } catch (err) {
       log.error('DB error while deleting warehouse', err);
       throw new Error('DATABASE_ERROR');

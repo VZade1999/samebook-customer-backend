@@ -18,6 +18,7 @@ import { AuthModule } from './auth/auth.module';
 import { CallbackModule } from './callback/callback.module';
 import { CategoriesModule } from './categories/categories.module';
 import { WarehousesModule } from './warehouses/warehouses.module';
+import { StockModule } from './stock/stock.module';
 import { ProfileModule } from './profile/profile.module';
 import { AttendanceFeatureModule } from './features/attendance/attendance-feature.module';
 import { TasksFeatureModule } from './features/tasks/tasks-feature.module';
@@ -65,6 +66,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     CallbackModule,
     CategoriesModule,
     WarehousesModule,
+    StockModule,
     ProfileModule,
     NotificationsModule,
     DocumentSeriesModule,

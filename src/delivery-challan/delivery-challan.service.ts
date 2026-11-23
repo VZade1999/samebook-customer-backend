@@ -22,6 +22,7 @@ import {
   summaryWindow,
 } from './challan-insights.rules';
 import { BILLED_QTY_SQL, EPS as QTY_EPS, SENT_QTY_SQL, fullyBilledSql, liveInvoiceSql } from '../invoice/billing.rules';
+import { recordChallanStock } from '../stock/stock-ledger';
 import {
   ChallanItemDto,
   ChallanListDto,
@@ -1638,6 +1639,17 @@ export class DeliveryChallanService {
           if (challan.reason === 'STOCK_TRANSFER' && toId) {
             await this.incrementStock(lines, toId, transaction);
           }
+          // Stock history + product totals, in the same transaction.
+          await recordChallanStock(this.dbProvider.sequelize, transaction, {
+            companyId: req.companyId,
+            challanId: id,
+            challanNo: challan.challan_number ?? null,
+            userId: req.userId ?? null,
+            lines,
+            fromId: fromId as number,
+            toId: challan.reason === 'STOCK_TRANSFER' && toId ? toId : null,
+            cancelled: false,
+          });
         }
 
         const before = this.snapshotOf(challan);
@@ -1788,6 +1800,16 @@ export class DeliveryChallanService {
               );
             }
             await this.incrementStock(lines, fromId as number, transaction);
+            await recordChallanStock(this.dbProvider.sequelize, transaction, {
+              companyId: req.companyId,
+              challanId: id,
+              challanNo: challan.challan_number ?? null,
+              userId: req.userId ?? null,
+              lines,
+              fromId: fromId as number,
+              toId: challan.reason === 'STOCK_TRANSFER' && toId ? toId : null,
+              cancelled: true,
+            });
             reversed = true;
           }
         }

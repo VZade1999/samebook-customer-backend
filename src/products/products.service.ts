@@ -2,7 +2,8 @@ import { AppLogger } from '../common/logger/logger.service';
 import { CreateProductDto } from './dto/createProduct.dto';
 import { products } from '../models/products';
 
-import { Op } from 'sequelize';
+import { Op, QueryTypes, col, fn, where } from 'sequelize';
+import { changeLevel, ensureWarehouse, type LedgerEntry, levelOf, lockRows, record, syncTotals } from '../stock/stock-ledger';
 import { Inject, Injectable } from '@nestjs/common';
 import { ProductsListDto } from './products-list.dto';
 import { UpdateProductDto } from './dto/updateProduct.dto';
@@ -64,6 +65,20 @@ export class ProductService {
     return null;
   }
 
+  /** Another active product of the company with this name (trimmed, any case). */
+  private sameNameProduct(companyId: number, name: unknown, exceptId?: number): Promise<products | null> {
+    const key = String(name ?? '').trim().toLowerCase();
+    if (!key) return Promise.resolve(null);
+    return this.Products.findOne({
+      where: {
+        company_id: companyId,
+        is_active: 1,
+        ...(exceptId ? { id: { [Op.ne]: exceptId } } : {}),
+        [Op.and]: [where(fn('LOWER', fn('TRIM', col('name'))), key)],
+      },
+    });
+  }
+
   async createProduct(data: CreateProductDto, currentUser: any) {
     const companyId = currentUser.company_id;
     const log = this.appLogger.forContext('ProductService', 'createProduct', {
@@ -85,21 +100,26 @@ export class ProductService {
       return warehouseError;
     }
 
-    if (data.product_code) {
-      const existingProduct = await this.Products.findOne({
-        where: {
-          company_id: companyId,
-          product_code: data.product_code,
-        },
-      });
+    // product_code holds the HSN code, which many products share (e.g. every
+    // cable under 85446090) — so it must not be unique. The name must be:
+    // quotations find their product by name.
+    if (await this.sameNameProduct(companyId, data.name)) {
+      log.warn('Creation failed — a product with this name already exists');
+      return {
+        success: false,
+        message: `"${String(data.name).trim()}" is already in your products`,
+      };
+    }
 
-      if (existingProduct) {
-        log.warn('Creation failed — product code already exists');
-        return {
-          success: false,
-          message: `${data.product_code} product code already exists`,
-        };
-      }
+    // Opening stock needs "Manage stock"; the warehouse must be one of yours.
+    const opening = Math.max(0, Math.round(Number(data.stock_quantity) || 0));
+    if (opening > 0 && !(currentUser?.permissions || []).includes('stock.manage')) {
+      log.warn('Creation failed — opening stock without stock.manage');
+      return { success: false, message: "You can't add stock — ask an admin for the \"Manage stock\" permission" };
+    }
+    if (data.warehouse_id) {
+      const whError = await this.assertWarehousesBelongToCompany([{ warehouse_id: Number(data.warehouse_id) }], companyId);
+      if (whError) return whError;
     }
 
     let product: products;
@@ -118,7 +138,7 @@ export class ProductService {
           // another tenant's account just by editing the request body.
           company_id: companyId,
           product_code: data.product_code,
-          name: data.name,
+          name: typeof data.name === 'string' ? data.name.trim() : data.name,
           description: data.description,
           unit: data.unit,
           price: data.price,
@@ -126,7 +146,9 @@ export class ProductService {
           tax_percentage: data.tax_percentage,
           sku: data.sku,
           barcode: data.barcode,
-          stock_quantity: data.stock_quantity,
+          // Stock is added below through the stock history; this becomes the
+          // sum of its warehouse stock.
+          stock_quantity: 0,
           minimum_stock: data.minimum_stock,
           category_id: data.category_id,
           image_url: data.image_url,
@@ -231,6 +253,34 @@ export class ProductService {
           }
         }
       }
+
+      // Where it's kept and its opening stock — through the stock history.
+      const entries: LedgerEntry[] = [];
+      if (opening > 0 || data.warehouse_id) {
+        const wh = data.warehouse_id ? { id: Number(data.warehouse_id) } : await ensureWarehouse(sequelize, t, companyId);
+        const after = await changeLevel(sequelize, t, product.id, wh.id, opening, data.bin_location?.trim() || null);
+        if (opening > 0) {
+          entries.push({ company_id: companyId, product_id: product.id, warehouse_id: wh.id, type: 'OPENING', quantity: opening, balance_after: after, note: 'Opening stock', created_by: currentUser?.user_id ?? null });
+        }
+      }
+      // Stock sent the older way (nested inventory rows) is opening stock too.
+      for (const inv of Array.isArray(data.inventory) ? data.inventory : []) {
+        const qty = Math.round(Number(inv.stock_level) || 0);
+        if (!qty) continue;
+        entries.push({
+          company_id: companyId,
+          product_id: product.id,
+          variant_id: inv.variant_id ?? null,
+          warehouse_id: inv.warehouse_id ?? null,
+          type: 'OPENING',
+          quantity: qty,
+          balance_after: inv.warehouse_id ? await levelOf(sequelize, t, product.id, Number(inv.warehouse_id)) : qty,
+          note: 'Opening stock',
+          created_by: currentUser?.user_id ?? null,
+        });
+      }
+      await record(sequelize, t, entries);
+      await syncTotals(sequelize, t, [product.id]);
 
       await t.commit();
     } catch (err:any) {
@@ -598,6 +648,45 @@ export class ProductService {
     };
   }
 
+  /**
+   * Sets a product's total stock to `target` as a correction: extra stock goes
+   * to the warehouse holding most (or the default one); less is taken from the
+   * fullest warehouses first. Each change is written to the stock history.
+   */
+  private async correctStock(productId: number, companyId: number, target: number, userId: number | null, t: any) {
+    const sequelize = this.dbProvider.sequelize;
+    const rows: any[] = await sequelize.query(
+      `SELECT warehouse_id, COALESCE(SUM(stock_level), 0) AS qty FROM product_inventory
+       WHERE product_id = :p AND is_active = 1 AND variant_id IS NULL AND warehouse_id IS NOT NULL
+       GROUP BY warehouse_id ORDER BY qty DESC, warehouse_id`,
+      { replacements: { p: productId }, type: QueryTypes.SELECT, transaction: t },
+    );
+    const [all]: any[] = await sequelize.query(
+      `SELECT COALESCE(SUM(stock_level), 0) AS s FROM product_inventory WHERE product_id = :p AND is_active = 1`,
+      { replacements: { p: productId }, type: QueryTypes.SELECT, transaction: t },
+    );
+    let diff = target - (Number(all?.s) || 0);
+    if (!diff) return;
+    await lockRows(sequelize, t, rows.map((r) => ({ product_id: productId, warehouse_id: Number(r.warehouse_id) })));
+    const entries: LedgerEntry[] = [];
+    const base = { company_id: companyId, product_id: productId, type: 'COUNTED' as const, reason: 'OTHER', note: 'Stock changed on the product', created_by: userId };
+    if (diff > 0) {
+      const whId = rows[0] ? Number(rows[0].warehouse_id) : (await ensureWarehouse(sequelize, t, companyId)).id;
+      const after = await changeLevel(sequelize, t, productId, whId, diff);
+      entries.push({ ...base, warehouse_id: whId, quantity: diff, balance_after: after });
+    } else {
+      for (const r of rows) {
+        if (diff >= 0) break;
+        const take = Math.min(-diff, Number(r.qty) || 0);
+        if (take <= 0) continue;
+        const after = await changeLevel(sequelize, t, productId, Number(r.warehouse_id), -take);
+        entries.push({ ...base, warehouse_id: Number(r.warehouse_id), quantity: -take, balance_after: after });
+        diff += take;
+      }
+    }
+    await record(sequelize, t, entries);
+  }
+
   async updateProduct(id: number, data: UpdateProductDto, currentUser: any) {
     const log = this.appLogger.forContext('ProductService', 'updateProduct', {
       productId: id,
@@ -632,26 +721,34 @@ export class ProductService {
       return warehouseError;
     }
 
-    if (data.product_code && data.product_code !== product.product_code) {
-      let existingProduct: products | null;
+    // A changed stock figure needs "Manage stock" (stock rows sent the older
+    // way, as `inventory`, set the figure themselves).
+    const wanted = data.stock_quantity !== undefined && data.inventory === undefined ? Math.max(0, Math.round(Number(data.stock_quantity) || 0)) : null;
+    const stockTarget = wanted !== null && wanted !== Number(product.stock_quantity || 0) ? wanted : null;
+    if (stockTarget !== null && !(currentUser?.permissions || []).includes('stock.manage')) {
+      log.warn('Update failed — stock change without stock.manage');
+      return { success: false, message: "You can't change stock — ask an admin for the \"Manage stock\" permission" };
+    }
+
+    // A repeated HSN (product_code) is fine; a name another active product
+    // already uses is not — only checked when the name actually changes, so
+    // existing look-alikes can still be edited.
+    if (
+      data.name !== undefined &&
+      String(data.name).trim().toLowerCase() !== String(product.name || '').trim().toLowerCase()
+    ) {
+      let clash: products | null;
       try {
-        existingProduct = await this.Products.findOne({
-          where: {
-            company_id: product.company_id,
-            product_code: data.product_code,
-            id: { [Op.ne]: id },
-          },
-        });
+        clash = await this.sameNameProduct(product.company_id, data.name, id);
       } catch (err) {
-        log.error('DB error while checking product code uniqueness', err);
+        log.error('DB error while checking product name', err);
         throw new Error('DATABASE_ERROR');
       }
-
-      if (existingProduct) {
-        log.warn('Update failed — product code already in use');
+      if (clash) {
+        log.warn('Update failed — product name already in use');
         return {
           success: false,
-          message: `${data.product_code} is already in use`,
+          message: `"${String(data.name).trim()}" is already in your products`,
         };
       }
     }
@@ -785,9 +882,8 @@ export class ProductService {
           }),
           ...(data.sku !== undefined && { sku: data.sku }),
           ...(data.barcode !== undefined && { barcode: data.barcode }),
-          ...(data.stock_quantity !== undefined && {
-            stock_quantity: data.stock_quantity,
-          }),
+          // stock_quantity is not written here: it's the sum of the product's
+          // warehouse stock, changed through the stock history (below).
           ...(data.minimum_stock !== undefined && {
             minimum_stock: data.minimum_stock,
           }),
@@ -852,6 +948,13 @@ export class ProductService {
           is_active: 1,
         }),
       );
+
+      // A new stock figure set on the product itself (e.g. by the AI agent)
+      // goes in as a correction in its warehouses, so history and totals agree.
+      if (stockTarget !== null) {
+        await this.correctStock(id, product.company_id, stockTarget, currentUser?.user_id ?? null, transaction);
+      }
+      await syncTotals(this.dbProvider.sequelize, transaction, [id]);
 
       await transaction.commit();
     } catch (err:any) {

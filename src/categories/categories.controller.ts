@@ -108,6 +108,31 @@ export class CategoriesController {
     }
   }
 
+  /** Every category with product counts and sub-categories. */
+  @Get('/directory')
+  @RequirePermissions('categories.view')
+  async directory(@Req() req: Request, @Res() res: Response) {
+    try {
+      return res.json(await this.categoriesService.directory(this.getRequester(req)));
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  /** Delete a category; its products move to `move_to` (or to no category). */
+  @Post('/:id/remove')
+  @RequirePermissions('categories.delete')
+  async remove(@Req() req: Request, @Res() res: Response, @Param('id', ParseIntPipe) id: number, @Body() body: any) {
+    try {
+      const to = Number(body?.move_to);
+      const response = await this.categoriesService.removeCategory(id, Number.isInteger(to) && to > 0 ? to : null, this.getRequester(req));
+      if (!response.success) return failedRes(res, response.message);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
   @Post('/delete/:id')
   @RequirePermissions('categories.delete')
   async deleteCategory(
