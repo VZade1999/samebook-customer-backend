@@ -5,16 +5,14 @@ import { allTools } from './index';
 // the @RequirePermissions on the equivalent REST endpoint so the AI agent
 // can never do more than the user could do through the normal UI/API.
 //
-// Customers: the customers REST controller currently enforces no
-// @RequirePermissions at all, so every customer tool requires only
-// 'customers.view' (the permission the frontend gates the customers page
-// with). Tighten to customers.create/edit/delete once the REST side does.
+// Customers: same as the REST controller — reading needs customers.view,
+// changing needs customers.create / edit / delete.
 export const TOOL_PERMISSIONS: Record<string, string[]> = {
   // ── Customers ────────────────────────────────────────────────────────
   get_customers_list: ['customers.view'],
-  create_customer: ['customers.view'],
-  update_customer: ['customers.view'],
-  delete_customer: ['customers.view'],
+  create_customer: ['customers.create'],
+  update_customer: ['customers.edit'],
+  delete_customer: ['customers.delete'],
 
   // ── Products ─────────────────────────────────────────────────────────
   get_products_list: ['products.view'],

@@ -37,21 +37,44 @@ import { CustomersListDto } from './customers-list.dto';
 import { errorRes, failedRes, successRes } from '../Util/response.util';
 import { GetUser } from '../common/decorators/get-user.decorator';
 import { CurrentUser } from '../common/interfaces/urrent-user.interface';
+import { PermissionsGuard } from '../common/guards/permissions.guard';
+import { RequirePermissions } from '../common/decorators/require-permissions.decorator';
+import { CustomerDirectoryService } from './customer-directory.service';
 
+// Reading customers stays open to every signed-in user of the company (the
+// quotation / invoice / challan pickers need it); adding, changing and
+// deleting need customers.create / edit / delete.
 @Controller('customer')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, PermissionsGuard)
 export class CustomerController {
   constructor(
     private readonly customerService: CustomerService,
 
     private readonly appLogger: AppLogger,
+
+    private readonly directoryService: CustomerDirectoryService,
   ) {}
+
+  /** The Customers page: customers with billing figures, tile counts, filters and sorting. */
+  @Get('/directory')
+  @RequirePermissions('customers.view')
+  async directory(@Req() req: any, @Query() query: any) {
+    return this.directoryService.directory(req.user?.company_id, req.user?.permissions || [], query || {});
+  }
+
+  /** A customer's billing summary and recent quotations, challans and invoices. */
+  @Get('/:id/activity')
+  @RequirePermissions('customers.view')
+  async activity(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.directoryService.activity(req.user?.company_id, id, req.user?.permissions || []);
+  }
 
   // =====================================================
   // CREATE CUSTOMER
   // =====================================================
   @UseGuards(AuthGuard)
   @Post("/create")
+  @RequirePermissions('customers.create')
   @UsePipes(
     new ValidationPipe({
       whitelist: true,
@@ -321,6 +344,7 @@ export class CustomerController {
   // =====================================================
   @UseGuards(AuthGuard)
   @Put('/:id')
+  @RequirePermissions('customers.edit')
   @UsePipes(
     new ValidationPipe({
       whitelist: true,
@@ -408,6 +432,7 @@ export class CustomerController {
   // =====================================================
   @UseGuards(AuthGuard)
   @Delete('/:id')
+  @RequirePermissions('customers.delete')
   async deleteCustomer(
     @Req() req: Request,
 
