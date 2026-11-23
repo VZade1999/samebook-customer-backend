@@ -28,6 +28,8 @@ export interface DirectoryQuery {
   sort?: string;
   page?: number | string;
   limit?: number | string;
+  /** One customer by id (a link to their profile, e.g. from the AI Assistant). */
+  id?: number | string;
 }
 
 /** What the caller may see, from their permissions (the same gates as the Dashboard). */
@@ -158,6 +160,16 @@ export class CustomerDirectoryService {
     const can = accessOf(permissions);
     const now = new Date();
     const all = await this.rows(companyId, permissions);
+    const only = Number(query.id);
+    if (Number.isInteger(only) && only > 0) {
+      const hit = all.filter((r) => r.id === only).map((r) => ({ ...r, last_activity: lastActivity(r) }));
+      const stats = directoryStats(all, now);
+      if (!can.money) {
+        stats.due_total = 0;
+        stats.billed_total = 0;
+      }
+      return { customers: hit, pagination: { total: hit.length, page: 1, limit: 1, pages: 1 }, stats, access: can };
+    }
     const filter = parseFilter(query.filter);
     const type = String(query.type || '').toUpperCase();
     const state = String(query.state || '').trim().toLowerCase();

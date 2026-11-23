@@ -5,6 +5,6 @@ import { CustomerDirectoryService } from './customer-directory.service';
 @Module({
   controllers: [CustomerController],
   providers: [CustomerService, CustomerDirectoryService],
-  exports: [CustomerService],
+  exports: [CustomerService, CustomerDirectoryService],
 })
 export class CustomerModule {}

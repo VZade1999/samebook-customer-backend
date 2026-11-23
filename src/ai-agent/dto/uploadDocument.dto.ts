@@ -1,4 +1,5 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
@@ -18,16 +19,31 @@ export class UploadDocumentDto {
   @MaxLength(255)
   document_name?: string;
 
-  // Optional extra instruction alongside the document (e.g. "these are
-  // urgent, mark the quotation notes accordingly") — defaults to a
-  // standard "build a quotation from this" instruction if omitted.
+  // Optional note with the document (e.g. "these are urgent") — without one
+  // the assistant makes a draft quotation from it.
   @IsOptional()
   @IsString()
   @MaxLength(1000)
   message?: string;
 
+  /** The chat to continue; leave it out to start a new one. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  conversation_id?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(-840)
+  @Max(840)
+  tz?: number;
+
+  // Accepted from older pages; not used.
   @IsOptional()
   @IsString()
+  @MaxLength(100)
   session_id?: string;
 }
 

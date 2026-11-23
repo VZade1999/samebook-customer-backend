@@ -69,6 +69,16 @@ export const MODULE_CATALOG: readonly ModuleDefinition[] = [
     permissionPrefixes: ['crm.'],
     grantPermissions: ['crm.view', 'crm.create'],
   },
+  {
+    key: 'ai_agent',
+    name: 'AI Assistant',
+    description:
+      'Ask about your business in plain words and let it do the work: find customers, check stock, make quotations, record payments. It only does what each person is allowed to, and asks for Confirm before anything risky.',
+    core: false,
+    plan: 'FREE',
+    permissionPrefixes: ['ai_agent.'],
+    grantPermissions: ['ai_agent.view', 'ai_agent.use'],
+  },
 ];
 
 export const CORE_MODULE_KEYS: readonly string[] = MODULE_CATALOG.filter((m) => m.core).map(

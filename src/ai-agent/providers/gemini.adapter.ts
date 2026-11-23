@@ -98,6 +98,7 @@ export async function callGemini(
   model: string,
   messages: Groq.Chat.ChatCompletionMessageParam[],
   tools: Groq.Chat.ChatCompletionTool[],
+  opts: { maxOutputTokens?: number; temperature?: number } = {},
 ): Promise<Groq.Chat.ChatCompletion> {
   const ai = new GoogleGenAI({ apiKey });
   const { systemInstruction, contents } = toGeminiContents(messages);
@@ -112,8 +113,8 @@ export async function callGemini(
         // Gemini rejects an empty functionDeclarations list, so omit tools
         // entirely for users who aren't permitted any.
         ...(tools?.length ? { tools: toGeminiTools(tools) } : {}),
-        maxOutputTokens: 1024,
-        temperature: 0.7,
+        maxOutputTokens: opts.maxOutputTokens ?? 1024,
+        temperature: opts.temperature ?? 0.7,
         httpOptions: { timeout: GEMINI_TIMEOUT_MS },
       },
     });
