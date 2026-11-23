@@ -30,6 +30,7 @@ import {
   toPaise,
 } from './invoice-insights.rules';
 import { determineTaxType, getStateCodeFromGstin, getStateCodeFromName } from '../common/gst-state.util';
+import { companyTaxesTransport } from '../common/transport-gst';
 import {
   BILLABLE_QUOTATION_STATUSES,
   BILLED_QTY_SQL,
@@ -607,6 +608,9 @@ export class InvoiceService {
     const transportDefault = suggestedTransport([...quotations.values()]);
     const transport = parseTransport(input.transport, transportDefault);
     if (!transport.ok) throw new BadRequestException(transport.message);
+    // The invoice follows the company's setting today (the GST rule), even
+    // when its quotation was worked out the older way.
+    const transportGst = await companyTaxesTransport(this.db.sequelize, companyId, transaction);
 
     const primary = quotations.get(Number(challans[0]?.quotation_id ?? input.quotationId));
     if (!primary) throw new BadRequestException('Approved quotation not found');
@@ -632,7 +636,7 @@ export class InvoiceService {
       shipping,
       ledger,
       lines: lines.map(priceLine),
-      totals: invoiceTotals(lines, quotations, transport.value),
+      totals: invoiceTotals(lines, quotations, transport.value, transportGst),
       transportDefault,
     };
   }
@@ -849,8 +853,9 @@ export class InvoiceService {
       }
 
       const lines = parsedLines.lines.map(priceLine);
-      const t = directTotals(parsedLines.lines, overall, transport.value, rates);
-      if (t.taxable < 0) throw new BadRequestException("The discount is more than the items' value");
+      const transportGst = await companyTaxesTransport(this.db.sequelize, companyId, transaction);
+      const t = directTotals(parsedLines.lines, overall, transport.value, rates, transportGst);
+      if (t.items_taxable < 0) throw new BadRequestException("The discount is more than the items' value");
 
       const { invoiceNumber, dailySequence, overallSequence } = await this.nextInvoiceNumber(companyId, transaction, body?.series_id);
       const contactName = contact ? `${contact.first_name || ''} ${contact.last_name || ''}`.trim() : null;
@@ -889,6 +894,7 @@ export class InvoiceService {
           igst_percent: t.igst_percent,
           igst_amount: t.igst_amount,
           transport_charges: t.transport_charges,
+          transport_gst: t.transport_gst,
           grand_total: t.grand_total,
           paid_amount: 0,
           balance_amount: t.grand_total,
@@ -1009,6 +1015,7 @@ export class InvoiceService {
           igst_percent: t.igst_percent,
           igst_amount: t.igst_amount,
           transport_charges: t.transport_charges,
+          transport_gst: t.transport_gst,
           grand_total: t.grand_total,
           paid_amount: 0,
           balance_amount: t.grand_total,

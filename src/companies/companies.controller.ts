@@ -59,6 +59,31 @@ export class CompanyController {
     }
   }
 
+  // "GST on transport": the quotation and invoice editors read it, so any
+  // signed-in user of the company can; changing it is a company editor's.
+  @Get('/tax-settings')
+  async getTaxSettings(@Req() req: Request, @Res() res: Response) {
+    try {
+      const response = await this.companyService.getTaxSettings(this.getRequester(req));
+      if (!response.success) return failedRes(res, response.message, 404);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
+  @Put('/tax-settings')
+  @RequirePermissions('companies.edit')
+  async setTaxSettings(@Req() req: Request, @Res() res: Response, @Body() body: { transport_gst?: unknown }) {
+    try {
+      const response = await this.companyService.setTaxSettings(this.getRequester(req), body);
+      if (!response.success) return failedRes(res, response.message, 400);
+      return successRes(res, response.message, response.data);
+    } catch (error) {
+      return errorRes(res, error);
+    }
+  }
+
   // The signature / stamp printed on documents: every PDF reads it, so any
   // signed-in user of the company can; adding, changing or removing it is an editor's.
   @Get('/signature')

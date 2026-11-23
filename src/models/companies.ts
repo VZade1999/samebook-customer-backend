@@ -17,6 +17,8 @@ export interface companiesAttributes {
   default_terms_conditions?: string;
   /** How the company usually sells (null = not chosen yet). Only changes defaults. */
   sales_flow?: string | null;
+  /** 1 = transport on quotations and invoices carries GST at the goods' rate (the GST rule); 0 = turned off by an Admin. */
+  transport_gst?: number;
   logo?: Buffer;
   /** Signature and/or stamp (PNG) printed above "Authorised Signatory"; null = none. */
   signature?: Buffer | null;
@@ -41,6 +43,7 @@ export type companiesOptionalAttributes =
   | 'status'
   | 'default_terms_conditions'
   | 'sales_flow'
+  | 'transport_gst'
   | 'logo'
   | 'signature'
   | 'is_active'
@@ -69,6 +72,7 @@ export class companies
   status?: string;
   default_terms_conditions?: string;
   sales_flow?: string | null;
+  transport_gst?: number;
   logo?: Buffer;
   signature?: Buffer | null;
   is_active?: number;
@@ -142,6 +146,11 @@ export class companies
         sales_flow: {
           type: DataTypes.STRING(20),
           allowNull: true,
+        },
+        transport_gst: {
+          type: DataTypes.TINYINT,
+          allowNull: false,
+          defaultValue: 1,
         },
         logo: {
           type: DataTypes.BLOB('medium'),

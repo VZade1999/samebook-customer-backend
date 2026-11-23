@@ -94,6 +94,9 @@ export interface invoicesAttributes {
 
   eway_bill_number?: string | null;
 
+  /** 1 = GST was charged on transport_charges; 0 = older invoices (transport added without GST). */
+  transport_gst?: number;
+
   created_at?: Date;
 
   updated_at?: Date;
@@ -110,6 +113,7 @@ export type invoicesOptionalAttributes =
   | 'vehicle_number'
   | 'lr_number'
   | 'eway_bill_number'
+  | 'transport_gst'
   | 'quotation_number'
   | 'document_type'
   | 'daily_sequence'
@@ -166,6 +170,7 @@ export class invoices
   vehicle_number?: string | null;
   lr_number?: string | null;
   eway_bill_number?: string | null;
+  transport_gst?: number;
   company_id!: number;
   customer_id!: number;
   invoice_number!: string;
@@ -260,6 +265,12 @@ export class invoices
         eway_bill_number: {
           type: DataTypes.STRING(32),
           allowNull: true,
+        },
+
+        transport_gst: {
+          type: DataTypes.TINYINT,
+          allowNull: false,
+          defaultValue: 0,
         },
 
         company_id: {

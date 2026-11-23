@@ -41,6 +41,9 @@ import {
 } from '../common/gst-state.util';
 import { DocumentSeriesService } from '../document-series/document-series.service';
 import { DEFAULT_TZ_MINUTES, addDays, parseTz, todayIn } from '../dashboard/dashboard.rules';
+import { companyTaxesTransport } from '../common/transport-gst';
+import { quotationTotals, snapshotState } from './quotation-totals.rules';
+import { applyTaxType as splitGstForStates } from '../invoice/billing.rules';
 import {
   APPROVED_STATUSES,
   EXPIRING_DAYS,
@@ -140,20 +143,18 @@ export class QuotationService {
   }
 
   // Zeroes out whichever of CGST+SGST / IGST doesn't apply to the resolved
-  // tax type, regardless of what the client sent for those percents.
+  // tax type. When only the other kind was given (e.g. an edit that sends no
+  // rates, after the states were judged differently), the same total rate is
+  // split the right way instead of silently dropping the GST — the invoices'
+  // rule (billing.rules.ts applyTaxType).
   private applyTaxType(
     taxType: TaxType,
     cgstPercent?: number,
     sgstPercent?: number,
     igstPercent?: number,
   ) {
-    if (taxType === 'NO_GST') {
-      return { cgstPercent: 0, sgstPercent: 0, igstPercent: 0 };
-    }
-    if (taxType === 'INTRA_STATE') {
-      return { cgstPercent: cgstPercent ?? 0, sgstPercent: sgstPercent ?? 0, igstPercent: 0 };
-    }
-    return { cgstPercent: 0, sgstPercent: 0, igstPercent: igstPercent ?? 0 };
+    const r = splitGstForStates(taxType, { cgst: cgstPercent, sgst: sgstPercent, igst: igstPercent });
+    return { cgstPercent: r.cgst, sgstPercent: r.sgst, igstPercent: r.igst };
   }
 
   // Fire-and-forget: keeps the product catalog in sync with whatever the
@@ -574,60 +575,24 @@ export class QuotationService {
     });
   }
 
-  // Compute totals for a quotation from its items and overall adjustments.
+  // Compute totals for a quotation from its items and overall adjustments
+  // (quotation-totals.rules.ts). `transportGst`: the company charges GST on
+  // transport (companies.transport_gst).
   private computeTotalsFromItems(
     items: QuotationItemDto[],
     overallDiscount: number | undefined,
     transportCharges: number | undefined,
-    cgstPercent?: number,
-    sgstPercent?: number,
-    igstPercent?: number,
+    cgstPercent: number | undefined,
+    sgstPercent: number | undefined,
+    igstPercent: number | undefined,
+    transportGst: boolean,
   ) {
-    const subTotal = items.reduce((sum, item) => {
-      return sum + (item.qty || 0) * (item.rate || 0);
-    }, 0);
-
-    const itemDiscountTotal = items.reduce((sum, item) => {
-      const lineSubtotal = (item.qty || 0) * (item.rate || 0);
-      return sum + ((item.discount_percent ?? 0) / 100) * lineSubtotal;
-    }, 0);
-
-    const overallDisc = Number(overallDiscount ?? 0);
-    const transport = Number(transportCharges ?? 0);
-    const cgstPct = Number(cgstPercent ?? 0);
-    const sgstPct = Number(sgstPercent ?? 0);
-    const igstPct = Number(igstPercent ?? 0);
-
-    const totalDiscount = Number((itemDiscountTotal + overallDisc).toFixed(2));
-    const discountPercent = subTotal > 0 ? (totalDiscount / subTotal) * 100 : 0;
-    const taxableAmount = Number((subTotal - totalDiscount).toFixed(2));
-
-    const cgstAmount = Number(((taxableAmount * cgstPct) / 100).toFixed(2));
-    const sgstAmount = Number(((taxableAmount * sgstPct) / 100).toFixed(2));
-    const igstAmount = Number(((taxableAmount * igstPct) / 100).toFixed(2));
-    const taxTotal = Number((cgstAmount + sgstAmount + igstAmount).toFixed(2));
-
-    const grandTotal = Number(
-      (taxableAmount + taxTotal + transport).toFixed(2),
-    );
-
-    return {
-      sub_total: Number(subTotal.toFixed(2)),
-      discount_percent: Number(discountPercent.toFixed(2)),
-      discount_amount: totalDiscount,
-      cgst_percent: cgstPct,
-      cgst_amount: cgstAmount,
-      sgst_percent: sgstPct,
-      sgst_amount: sgstAmount,
-      igst_percent: igstPct,
-      igst_amount: igstAmount,
-      transport_charges: transport,
-      grand_total: grandTotal,
-    };
+    return quotationTotals(items, overallDiscount, transportCharges, cgstPercent, sgstPercent, igstPercent, transportGst);
   }
 
   private buildCreateQuotationPayload(
     data: CreateQuotationDto,
+    transportGst: boolean,
   ): quotationsCreationAttributes {
     // compute totals from items to avoid trusting client calculations
     const totals = this.computeTotalsFromItems(
@@ -637,6 +602,7 @@ export class QuotationService {
       data.cgst_percent,
       data.sgst_percent,
       data.igst_percent,
+      transportGst,
     );
 
     return {
@@ -663,6 +629,7 @@ export class QuotationService {
       igst_percent: totals.igst_percent,
       igst_amount: totals.igst_amount,
       transport_charges: totals.transport_charges,
+      transport_gst: totals.transport_gst,
       grand_total: totals.grand_total,
       notes: data.notes,
       terms_conditions: data.terms_conditions,
@@ -1331,7 +1298,8 @@ export class QuotationService {
       data.daily_sequence = numberInfo.dailySequence;
       data.overall_sequence = numberInfo.overallSequence;
 
-      const quotationPayload = this.buildCreateQuotationPayload(data);
+      const transportGst = await companyTaxesTransport(this.dbProvider.sequelize, data.company_id, transaction);
+      const quotationPayload = this.buildCreateQuotationPayload(data, transportGst);
       const quotation = await this.Quotations.create(quotationPayload, {
         transaction,
       });
@@ -1551,11 +1519,13 @@ export class QuotationService {
                 discount_percent: item.discount_percent,
               }));
 
+        // Saved snapshots come back as JSON text — read them properly, or an
+        // edit that doesn't resend the address judges the customer out-of-state.
         const buyerStateName =
-          (updatePayload as any).billing_address_snapshot?.state ||
-          (updatePayload as any).shipping_address_snapshot?.state ||
-          (quotation as any).billing_address_snapshot?.state ||
-          (quotation as any).shipping_address_snapshot?.state;
+          snapshotState((updatePayload as any).billing_address_snapshot) ||
+          snapshotState((updatePayload as any).shipping_address_snapshot) ||
+          snapshotState((quotation as any).billing_address_snapshot) ||
+          snapshotState((quotation as any).shipping_address_snapshot);
 
         const taxType = await this.resolveTaxType(
           quotation.company_id,
@@ -1578,6 +1548,9 @@ export class QuotationService {
             : quotation.igst_percent,
         );
 
+        // Saving works the totals out again, so they follow the company's
+        // current transport-GST setting (an older quotation becomes correct).
+        const transportGst = await companyTaxesTransport(this.dbProvider.sequelize, quotation.company_id, transaction);
         const totals = this.computeTotalsFromItems(
           itemsToRecalc,
           data.discount_amount !== undefined
@@ -1589,6 +1562,7 @@ export class QuotationService {
           adjustedTax.cgstPercent,
           adjustedTax.sgstPercent,
           adjustedTax.igstPercent,
+          transportGst,
         );
 
         Object.assign(updatePayload, {
@@ -1602,6 +1576,7 @@ export class QuotationService {
           igst_percent: totals.igst_percent,
           igst_amount: totals.igst_amount,
           transport_charges: totals.transport_charges,
+          transport_gst: totals.transport_gst,
           grand_total: totals.grand_total,
           status: 'DRAFT', // Reset to DRAFT on any change that affects totals
         });

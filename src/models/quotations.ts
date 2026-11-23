@@ -94,6 +94,8 @@ export interface quotationsAttributes {
   // The customer's purchase order ("Buyer's Order No. & Date"); locks once invoiced.
   customer_po_number?: string | null;
   customer_po_date?: string | null;
+  // 1 = GST was charged on transport_charges (set whenever the totals are worked out); 0 = older documents.
+  transport_gst?: number;
 }
 
 export type quotationsPk = 'id';
@@ -148,7 +150,8 @@ export type quotationsOptionalAttributes =
   | 'closed_at'
   | 'closed_by'
   | 'customer_po_number'
-  | 'customer_po_date';
+  | 'customer_po_date'
+  | 'transport_gst';
 
 export type quotationsCreationAttributes = Optional<
   quotationsAttributes,
@@ -247,6 +250,7 @@ export class quotations
   closed_by?: number | null;
   customer_po_number?: string | null;
   customer_po_date?: string | null;
+  transport_gst?: number;
   static initModel(sequelize: Sequelize.Sequelize): typeof quotations {
     return quotations.init(
       {
@@ -508,6 +512,11 @@ export class quotations
         customer_po_date: {
           type: DataTypes.DATEONLY,
           allowNull: true,
+        },
+        transport_gst: {
+          type: DataTypes.TINYINT,
+          allowNull: false,
+          defaultValue: 0,
         },
       },
 

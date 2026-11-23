@@ -90,12 +90,13 @@ describe('invoice totals', () => {
   const money = new Map([[12, qt12]]);
 
   it('billing the whole quotation reproduces its totals', () => {
-    const t = invoiceTotals([chairs(100), tables(10)], money, 1000);
-    // taxable 150,000 − 5,500 = 144,500; GST 9% + 9% = 26,010; + transport 1,000.
+    const t = invoiceTotals([chairs(100), tables(10)], money, 1000, false);
+    // taxable 150,000 − 5,500 = 144,500; GST 9% + 9% = 26,010; + transport 1,000 (not taxed).
     expect(t).toEqual({
       sub_total: 150000,
       discount_percent: 3.67,
       discount_amount: 5500,
+      items_taxable: 144500,
       taxable: 144500,
       cgst_percent: 9,
       cgst_amount: 13005,
@@ -104,13 +105,30 @@ describe('invoice totals', () => {
       igst_percent: 0,
       igst_amount: 0,
       transport_charges: 1000,
+      transport_gst: 0,
       grand_total: 171510,
     });
   });
 
+  it('taxes transport like the goods when the company charges GST on it (the GST rule)', () => {
+    const t = invoiceTotals([chairs(100), tables(10)], money, 1000, true);
+    // taxable 144,500 + transport 1,000 = 145,500; GST 9% + 9% = 26,190; total 144,500 + 1,000 + 26,190.
+    expect(t).toMatchObject({
+      items_taxable: 144500,
+      taxable: 145500,
+      cgst_amount: 13095,
+      sgst_amount: 13095,
+      transport_charges: 1000,
+      transport_gst: 1,
+      grand_total: 171690,
+    });
+    // No transport: nothing changes.
+    expect(invoiceTotals([chairs(100), tables(10)], money, 0, true).grand_total).toBe(invoiceTotals([chairs(100), tables(10)], money, 0, false).grand_total);
+  });
+
   it('a part bill shares the overall discount by value billed', () => {
     // 60 chairs: gross 60,000, line discount 3,000, net 57,000 = 57,000/145,000 of the net → 196.55 of the ₹500.
-    const t = invoiceTotals([chairs(60)], money, 0);
+    const t = invoiceTotals([chairs(60)], money, 0, false);
     expect(t.sub_total).toBe(60000);
     expect(t.discount_amount).toBe(3196.55);
     expect(t.taxable).toBe(56803.45);
@@ -119,8 +137,10 @@ describe('invoice totals', () => {
   });
 
   it('inter-state quotations bill IGST', () => {
-    const t = invoiceTotals([tables(1)], new Map([[12, { ...qt12, cgst_percent: 0, sgst_percent: 0, igst_percent: 18, discount_amount: 5000 }]]), 0);
-    expect(t).toMatchObject({ taxable: 5000, igst_amount: 900, cgst_amount: 0, grand_total: 5900 });
+    const igst = new Map([[12, { ...qt12, cgst_percent: 0, sgst_percent: 0, igst_percent: 18, discount_amount: 5000 }]]);
+    expect(invoiceTotals([tables(1)], igst, 0, false)).toMatchObject({ taxable: 5000, igst_amount: 900, cgst_amount: 0, grand_total: 5900 });
+    // With ₹100 transport taxed: IGST on 5,100.
+    expect(invoiceTotals([tables(1)], igst, 100, true)).toMatchObject({ taxable: 5100, igst_amount: 918, cgst_amount: 0, grand_total: 6018 });
   });
 
   it('prices each line like the quotation does', () => {
@@ -234,14 +254,37 @@ describe('an invoice without a quotation', () => {
       { quotation_item_id: null, quotation_id: null, product_name: 'B', qty: 10, rate: 5000, discount_percent: 0 },
     ];
     // Same numbers as "billing the whole quotation reproduces its totals".
-    expect(directTotals(lines, 500, 1000, { cgst: 9, sgst: 9, igst: 0 })).toMatchObject({
+    expect(directTotals(lines, 500, 1000, { cgst: 9, sgst: 9, igst: 0 }, false)).toMatchObject({
       sub_total: 150000,
       discount_amount: 5500,
       taxable: 144500,
       cgst_amount: 13005,
       sgst_amount: 13005,
+      transport_gst: 0,
       grand_total: 171510,
     });
+    expect(directTotals(lines, 500, 1000, { cgst: 9, sgst: 9, igst: 0 }, true)).toMatchObject({
+      items_taxable: 144500,
+      taxable: 145500,
+      cgst_amount: 13095,
+      sgst_amount: 13095,
+      transport_gst: 1,
+      grand_total: 171690,
+    });
+  });
+
+  it('item ₹100 + transport ₹100 at 18%: GST on ₹200 = ₹36, total ₹236 (₹218 the old way)', () => {
+    const item = [{ quotation_item_id: null, quotation_id: null, product_name: 'Cable', qty: 1, rate: 100, discount_percent: 0 }];
+    expect(directTotals(item, 0, 100, { cgst: 9, sgst: 9, igst: 0 }, true)).toMatchObject({ taxable: 200, cgst_amount: 18, sgst_amount: 18, grand_total: 236 });
+    expect(directTotals(item, 0, 100, { cgst: 9, sgst: 9, igst: 0 }, false)).toMatchObject({ taxable: 100, cgst_amount: 9, sgst_amount: 9, grand_total: 218 });
+    // GST-free goods: transport stays GST-free too.
+    expect(directTotals(item, 0, 100, { cgst: 0, sgst: 0, igst: 0 }, true)).toMatchObject({ taxable: 200, cgst_amount: 0, grand_total: 200 });
+  });
+
+  it('a discount bigger than the items is still caught when transport is taxed', () => {
+    const item = [{ quotation_item_id: null, quotation_id: null, product_name: 'Cable', qty: 1, rate: 100, discount_percent: 0 }];
+    // 100 − 150 = −50 of items; transport 500 would hide it in the GST base.
+    expect(directTotals(item, 150, 500, { cgst: 9, sgst: 9, igst: 0 }, true).items_taxable).toBe(-50);
   });
 
   it('splits GST by the seller and buyer states', () => {

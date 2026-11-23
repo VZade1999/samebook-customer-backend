@@ -11,6 +11,7 @@ import { CompanyMapper } from './mappers/company.mapper';
 import { getStateCodeFromGstin } from '../common/gst-state.util';
 import { CacheService, companyScope } from '../common/cache/cache.service';
 import { parseSalesFlow, storedSalesFlow } from './sales-flow.rules';
+import { transportTaxed } from '../common/transport-gst.rules';
 import { parseSignature, signatureDataUrl } from './signature.rules';
 
 // Identity context passed down from the controller (and from the AI agent's
@@ -102,6 +103,33 @@ export class CompanyService {
     if (!company) return { success: false, message: 'Company not found' };
     if (company.sales_flow !== flow) await this.Companies.update({ sales_flow: flow }, { where: { id: company.id } });
     return { success: true, message: 'Saved — the screens now follow how you sell', data: { sales_flow: flow } };
+  }
+
+  /**
+   * "GST on transport" (common/transport-gst.rules.ts): on = transport on
+   * quotations and invoices carries GST at the goods' rate (the GST rule).
+   * The editors read it; existing documents keep what they were issued with.
+   */
+  async getTaxSettings(requester: CompanyRequester) {
+    const company = await this.Companies.findOne({
+      where: { id: requester.companyId, is_active: 1 },
+      attributes: ['id', 'transport_gst'],
+    });
+    if (!company) return { success: false, message: 'Company not found' };
+    return { success: true, message: 'Tax settings', data: { transport_gst: transportTaxed(company.transport_gst) } };
+  }
+
+  async setTaxSettings(requester: CompanyRequester, body: { transport_gst?: unknown }) {
+    if (typeof body?.transport_gst !== 'boolean') return { success: false, message: 'Say whether transport carries GST' };
+    const on = body.transport_gst;
+    const company = await this.Companies.findOne({ where: { id: requester.companyId, is_active: 1 }, attributes: ['id', 'transport_gst'] });
+    if (!company) return { success: false, message: 'Company not found' };
+    if (transportTaxed(company.transport_gst) !== on) await this.Companies.update({ transport_gst: on ? 1 : 0 }, { where: { id: company.id } });
+    return {
+      success: true,
+      message: on ? 'Saved — new quotations and invoices add GST on transport' : 'Saved — new quotations and invoices add transport without GST',
+      data: { transport_gst: on },
+    };
   }
 
   /**

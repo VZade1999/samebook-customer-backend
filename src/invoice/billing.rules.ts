@@ -6,6 +6,7 @@
 //   - which challans can share one invoice
 //   - when an invoice can be cancelled
 // No database access here, so it is unit-tested.
+import { gstBase } from '../common/transport-gst.rules';
 
 /** Quantities have 3 decimals. */
 export const EPS = 0.0005;
@@ -239,10 +240,13 @@ export const priceLine = (l: BillLine): PricedLine => {
 /**
  * Invoice totals: sub-total of qty × rate, line discounts plus each
  * quotation's overall discount shared by the value billed, GST at the
- * quotation's rates on the taxable value, plus transport (not taxed — the
- * same as the quotation). Billing a whole quotation at once reproduces it.
+ * quotation's rates on the taxable value, plus transport. With
+ * `transportGst` (the company's setting when the invoice is made — the GST
+ * rule), transport is part of the taxable value and carries the same GST.
+ * Billing a whole quotation at once reproduces it when both were worked out
+ * the same way. `taxable` is the value GST is charged on.
  */
-export const invoiceTotals = (lines: BillLine[], quotations: Map<number, QuotationMoney>, transport: number) => {
+export const invoiceTotals = (lines: BillLine[], quotations: Map<number, QuotationMoney>, transport: number, transportGst: boolean) => {
   let gross = 0;
   let lineDisc = 0;
   const netByQuotation = new Map<number, number>();
@@ -268,15 +272,17 @@ export const invoiceTotals = (lines: BillLine[], quotations: Map<number, Quotati
 
   const subTotal = round2(gross);
   const discount = round2(lineDisc + overall);
-  const taxable = round2(subTotal - discount);
+  const itemsTaxable = round2(subTotal - discount);
+  const t = round2(transport);
+  const taxable = gstBase(itemsTaxable, t, transportGst);
   const cgst = round2((taxable * cgstPct) / 100);
   const sgst = round2((taxable * sgstPct) / 100);
   const igst = round2((taxable * igstPct) / 100);
-  const t = round2(transport);
   return {
     sub_total: subTotal,
     discount_percent: subTotal > 0 ? round2((discount / subTotal) * 100) : 0,
     discount_amount: discount,
+    items_taxable: itemsTaxable,
     taxable,
     cgst_percent: cgstPct,
     cgst_amount: cgst,
@@ -285,7 +291,8 @@ export const invoiceTotals = (lines: BillLine[], quotations: Map<number, Quotati
     igst_percent: igstPct,
     igst_amount: igst,
     transport_charges: t,
-    grand_total: round2(taxable + cgst + sgst + igst + t),
+    transport_gst: transportGst ? 1 : 0,
+    grand_total: round2(itemsTaxable + cgst + sgst + igst + t),
   };
 };
 
@@ -347,7 +354,7 @@ export const parseDirectLines = (items: unknown): { ok: true; lines: BillLine[] 
 };
 
 /** Totals of an invoice without a quotation — the same formula as invoiceTotals. */
-export const directTotals = (lines: BillLine[], overallDiscount: unknown, transport: number, rates: TaxRates) => {
+export const directTotals = (lines: BillLine[], overallDiscount: unknown, transport: number, rates: TaxRates, transportGst: boolean) => {
   let gross = 0;
   let lineDisc = 0;
   lines.forEach((l) => {
@@ -358,15 +365,17 @@ export const directTotals = (lines: BillLine[], overallDiscount: unknown, transp
   const overall = Math.max(0, num(overallDiscount));
   const subTotal = round2(gross);
   const discount = round2(lineDisc + overall);
-  const taxable = round2(subTotal - discount);
+  const itemsTaxable = round2(subTotal - discount);
+  const t = round2(transport);
+  const taxable = gstBase(itemsTaxable, t, transportGst);
   const cgst = round2((taxable * rates.cgst) / 100);
   const sgst = round2((taxable * rates.sgst) / 100);
   const igst = round2((taxable * rates.igst) / 100);
-  const t = round2(transport);
   return {
     sub_total: subTotal,
     discount_percent: subTotal > 0 ? round2((discount / subTotal) * 100) : 0,
     discount_amount: discount,
+    items_taxable: itemsTaxable,
     taxable,
     cgst_percent: rates.cgst,
     cgst_amount: cgst,
@@ -375,7 +384,8 @@ export const directTotals = (lines: BillLine[], overallDiscount: unknown, transp
     igst_percent: rates.igst,
     igst_amount: igst,
     transport_charges: t,
-    grand_total: round2(taxable + cgst + sgst + igst + t),
+    transport_gst: transportGst ? 1 : 0,
+    grand_total: round2(itemsTaxable + cgst + sgst + igst + t),
   };
 };
 
