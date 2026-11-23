@@ -3,6 +3,7 @@ import { AppLogger } from '../common/logger/logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { companyTaxesTransport } from '../common/transport-gst';
 import { GST_STATE_CODES } from '../common/gst-state.util';
+import { BILLABLE_QUOTATION_STATUSES, SENT_QTY_SQL } from '../invoice/billing.rules';
 import { changeLevel, levelOf, lockRows, newBatch, record, syncTotals, LedgerEntry } from '../stock/stock-ledger';
 import {
   AMENDABLE_STATUSES,
@@ -104,8 +105,9 @@ export class PurchaseOrdersService {
     else if (filter === 'LATE') where.push(`po.status IN (${OPEN_IN}) AND po.expected_date < :today`);
     else if (filter !== 'ALL') where.push('po.status = :status');
     if (Number(query?.supplier_id) > 0) where.push('po.supplier_id = :supplier');
+    if (Number(query?.quotation_id) > 0) where.push('po.quotation_id = :quotation');
     if (q) where.push('(po.po_number LIKE :q OR s.name LIKE :q OR po.supplier_ref LIKE :q)');
-    const rep = { c, today, status: filter, supplier: Number(query?.supplier_id) || null, q: q ? `%${q}%` : null, limit, offset };
+    const rep = { c, today, status: filter, supplier: Number(query?.supplier_id) || null, quotation: Number(query?.quotation_id) || null, q: q ? `%${q}%` : null, limit, offset };
     const from = `FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id WHERE ${where.join(' AND ')}`;
     const rows = await this.db.sel(
       `SELECT po.id, po.po_number, DATE_FORMAT(po.po_date, '%Y-%m-%d') AS po_date, DATE_FORMAT(po.expected_date, '%Y-%m-%d') AS expected_date,
@@ -195,7 +197,7 @@ export class PurchaseOrdersService {
         { c, id },
       ),
       this.db.sel(
-        `SELECT g.grn_id, g.item_name, g.unit, g.received_qty, g.accepted_qty, g.rejected_qty, g.reject_reason
+        `SELECT g.grn_id, g.po_item_id, g.item_name, g.unit, g.received_qty, g.accepted_qty, g.rejected_qty, g.reject_reason
            FROM goods_receipt_items g JOIN goods_receipts r ON r.id = g.grn_id WHERE r.po_id = :id AND r.company_id = :c ORDER BY g.id`,
         { c, id },
       ),
@@ -228,7 +230,13 @@ export class PurchaseOrdersService {
     const receivedAny = ledger.some((r) => r.received > 0);
     const st = po.status as PoStatus;
     const unbilled = ledger.some((r) => r.received - (r.billed || 0) > 0.0005);
-    const [createdBy, approvedBy] = await Promise.all([this.db.userName(po.created_by), this.db.userName(po.approved_by)]);
+    const [createdBy, approvedBy, forQuotation] = await Promise.all([
+      this.db.userName(po.created_by),
+      this.db.userName(po.approved_by),
+      po.quotation_id
+        ? this.db.one('SELECT id, quotation_number, customer_name FROM quotations WHERE id = :q AND company_id = :c', { q: po.quotation_id, c })
+        : Promise.resolve(null),
+    ]);
     const hide = (v: unknown) => (money ? round2(v) : null);
     return {
       id: Number(po.id),
@@ -240,6 +248,7 @@ export class PurchaseOrdersService {
       supplier_id: Number(po.supplier_id),
       supplier: parseJson(po.supplier_snapshot),
       supplier_ref: po.supplier_ref,
+      quotation: forQuotation ? { id: Number(forQuotation.id), number: forQuotation.quotation_number, customer_name: forQuotation.customer_name } : null,
       buyer: parseJson(po.buyer_snapshot),
       ship_to: parseJson(po.ship_to_snapshot),
       warehouse_id: po.warehouse_id ? Number(po.warehouse_id) : null,
@@ -310,7 +319,7 @@ export class PurchaseOrdersService {
         created_at: r.created_at,
         lines: receiptLines
           .filter((g) => Number(g.grn_id) === Number(r.id))
-          .map((g) => ({ item_name: g.item_name, unit: g.unit, received_qty: round3(g.received_qty), accepted_qty: round3(g.accepted_qty), rejected_qty: round3(g.rejected_qty), reject_reason: g.reject_reason })),
+          .map((g) => ({ po_item_id: Number(g.po_item_id), item_name: g.item_name, unit: g.unit, received_qty: round3(g.received_qty), accepted_qty: round3(g.accepted_qty), rejected_qty: round3(g.rejected_qty), reject_reason: g.reject_reason })),
       })),
       bills: money || can(user, PURCHASE_PERMS.bills)
         ? bills.map((b) => ({ id: Number(b.id), bill_number: b.bill_number, bill_date: b.bill_date, grand_total: round2(b.grand_total), balance_amount: round2(b.balance_amount), status: b.status }))
@@ -578,8 +587,12 @@ export class PurchaseOrdersService {
     const out = await this.db.tx(async (t) => {
       const b = await this.build(user, body, t);
       const status = submit ? this.decide(user, b.totals.grand_total, b.settings.approval_limit) : 'DRAFT';
+      const quotationId = Number(body?.quotation_id) > 0 ? Number(body.quotation_id) : null;
+      if (quotationId && !(await this.db.one('SELECT id FROM quotations WHERE id = :q AND company_id = :c', { q: quotationId, c }, t))) {
+        throw bad("That customer quotation isn't yours");
+      }
       const { number, seriesId } = await this.db.nextNumber(c, 'PURCHASE_ORDER', t, Number(body?.series_id) || null);
-      const v = b.values;
+      const v = { ...b.values, quotation_id: quotationId };
       const cols = Object.keys(v);
       const id = await this.db.insert(
         `INSERT INTO purchase_orders (company_id, po_number, series_id, status, ${cols.join(', ')}, submitted_at, approved_by, approved_at, created_by, updated_by)
@@ -986,6 +999,134 @@ export class PurchaseOrdersService {
         accepted: round3(r.accepted),
         rejected: round3(r.rejected),
       })),
+    };
+  }
+
+  /**
+   * Products for typed names (the AI Assistant's "draft a PO"): the exact
+   * name (any case) wins; otherwise up to five that contain it.
+   */
+  async matchProducts(user: PurchaseUser, names: string[]) {
+    const c = user.company_id;
+    const out = new Map<string, { exact: any | null; options: any[] }>();
+    for (const raw of [...new Set(names.map((n) => String(n ?? '').trim()).filter(Boolean))].slice(0, 50)) {
+      const k = raw.toLowerCase().replace(/\s+/g, ' ');
+      const exact = await this.db.one(
+        `SELECT id, name, unit, product_code, tax_percentage, cost_price FROM products WHERE company_id = :c AND is_active = 1 AND LOWER(TRIM(name)) = :k LIMIT 1`,
+        { c, k },
+      );
+      const options = exact
+        ? []
+        : await this.db.sel(
+            `SELECT id, name, unit, product_code, tax_percentage, cost_price FROM products WHERE company_id = :c AND is_active = 1 AND name LIKE :like ORDER BY CHAR_LENGTH(name), name LIMIT 5`,
+            { c, like: `%${raw.replace(/[\\%_]/g, (m) => `\\${m}`)}%` },
+          );
+      out.set(raw, { exact, options });
+    }
+    return out;
+  }
+
+  // ── Order for a customer's quotation (back-to-back buying) ──────────────
+
+  /**
+   * What to order for an approved customer quotation: each line still to
+   * send, less the stock you hold and what is already on order. Lines are
+   * matched to your products by name (quotation lines carry no product id);
+   * the last supplier and price come from earlier POs.
+   */
+  async forQuotation(user: PurchaseUser, quotationId: number) {
+    const c = user.company_id;
+    const qt = await this.db.one(
+      `SELECT id, quotation_number, customer_name, status, COALESCE(has_invoice, 0) AS has_invoice FROM quotations
+        WHERE id = :q AND company_id = :c AND COALESCE(status, '') <> 'DELETED'`,
+      { q: quotationId, c },
+    );
+    if (!qt) throw notFound('Quotation');
+    if (!BILLABLE_QUOTATION_STATUSES.includes(String(qt.status || '').toUpperCase()) && Number(qt.has_invoice) !== 1) {
+      throw bad(`${qt.quotation_number} isn't approved yet — order from suppliers once the customer confirms`);
+    }
+    const items = await this.db.sel(
+      `SELECT qi.id, qi.product_name, qi.hsn_code, qi.unit, qi.qty, ${SENT_QTY_SQL} AS sent
+         FROM quotation_items qi WHERE qi.quotation_id = :q ORDER BY qi.id`,
+      { q: quotationId },
+    );
+    const key = (s: unknown) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+    const names = [...new Set(items.map((i) => key(i.product_name)).filter(Boolean))];
+    const products = names.length
+      ? await this.db.sel(
+          `SELECT id, name, product_code, unit, tax_percentage, stock_quantity, cost_price FROM products
+            WHERE company_id = :c AND is_active = 1 AND LOWER(TRIM(name)) IN (:names)`,
+          { c, names },
+        )
+      : [];
+    const byName = new Map(products.map((p) => [key(p.name), p]));
+    const ids = products.map((p) => Number(p.id));
+    // Items not in the product list have no stock to count, so what was
+    // already bought for this quotation is subtracted instead (approved POs;
+    // a closed PO counts only what arrived).
+    const [onOrder, last, boughtRows] = await Promise.all([
+      this.onOrder(user, ids),
+      this.lastBought(user, ids),
+      this.db.sel(
+        `SELECT i.item_name,
+                CASE WHEN po.status = 'CLOSED'
+                     THEN COALESCE((SELECT SUM(g.accepted_qty) FROM goods_receipt_items g JOIN goods_receipts r ON r.id = g.grn_id
+                                     WHERE g.po_item_id = i.id AND r.status = 'RECEIVED'), 0)
+                     ELSE i.qty END AS qty
+           FROM purchase_order_items i JOIN purchase_orders po ON po.id = i.po_id
+          WHERE po.company_id = :c AND po.quotation_id = :q AND i.product_id IS NULL
+            AND po.status IN (${OPEN_IN}, 'RECEIVED', 'CLOSED')`,
+        { c, q: quotationId },
+      ),
+    ]);
+    const ordered = new Map(onOrder.map((o) => [o.product_id, o.on_order]));
+    const lastOf = new Map(last.map((l) => [l.product_id, l]));
+    // Several lines of the same product share its stock, first come first served.
+    const left = new Map(products.map((p) => [Number(p.id), Math.max(0, Number(p.stock_quantity) || 0) + (ordered.get(Number(p.id)) || 0)]));
+    const bought = new Map<string, number>();
+    for (const b of boughtRows) bought.set(key(b.item_name), (bought.get(key(b.item_name)) || 0) + Number(b.qty));
+    const lines = items.map((i) => {
+      const p = byName.get(key(i.product_name));
+      const need = Math.max(0, round3(Number(i.qty) - Number(i.sent)));
+      if (!p) {
+        const k = key(i.product_name);
+        const done = bought.get(k) || 0;
+        bought.set(k, Math.max(0, done - Number(i.qty)));
+        // min(): what is left to send, but never more than is left to buy.
+        const toOrder = Math.max(0, round3(Math.min(need, Number(i.qty) - done)));
+        return { item_name: i.product_name, product_id: null, hsn_code: i.hsn_code, unit: i.unit, need, in_stock: null, on_order: null, to_order: toOrder, rate: null, gst_rate: null, supplier_id: null, in_list: false };
+      }
+      const pid = Number(p.id);
+      const cover = left.get(pid) || 0;
+      const toOrder = Math.max(0, Math.ceil(need - cover));
+      left.set(pid, Math.max(0, cover - need));
+      const l = lastOf.get(pid);
+      const hsn = /^[0-9]{2,8}$/.test(String(p.product_code || '').trim()) ? String(p.product_code).trim() : i.hsn_code;
+      return {
+        item_name: p.name,
+        product_id: pid,
+        hsn_code: hsn,
+        unit: p.unit || i.unit,
+        need,
+        in_stock: Math.max(0, Number(p.stock_quantity) || 0),
+        on_order: ordered.get(pid) || 0,
+        to_order: toOrder,
+        rate: l ? l.rate : Number(p.cost_price) > 0 ? round2(p.cost_price) : null,
+        discount_percent: l ? l.discount_percent : 0,
+        gst_rate: l ? l.gst_rate : Number(p.tax_percentage) > 0 ? round2(p.tax_percentage) : DEFAULT_GST,
+        supplier_id: l ? l.supplier_id : null,
+        in_list: true,
+      };
+    });
+    const suppliers = [...new Set(lines.filter((l) => l.to_order > 0 && l.supplier_id).map((l) => l.supplier_id))];
+    return {
+      quotation: { id: Number(qt.id), number: qt.quotation_number, customer_name: qt.customer_name },
+      supplier_id: suppliers.length === 1 ? suppliers[0] : null,
+      lines,
+      already: await this.db.sel(
+        `SELECT id, po_number, status FROM purchase_orders WHERE company_id = :c AND quotation_id = :q AND status <> 'CANCELLED' ORDER BY id`,
+        { c, q: quotationId },
+      ),
     };
   }
 

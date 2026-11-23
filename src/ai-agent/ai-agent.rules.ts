@@ -29,7 +29,7 @@ export const DOCUMENT_TEXT_MAX = 6000;
 
 export type ToolKind = 'read' | 'write' | 'confirm';
 export type ActionStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
-export type RecordType = 'customer' | 'product' | 'quotation' | 'challan' | 'invoice' | 'warehouse' | 'company';
+export type RecordType = 'customer' | 'product' | 'quotation' | 'challan' | 'invoice' | 'warehouse' | 'company' | 'purchase_order' | 'supplier_bill';
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
@@ -281,6 +281,10 @@ export function recordLink(type: RecordType, id: number): string {
       return `/app/invoice?open=${id}`;
     case 'warehouse':
       return `/app/warehouses?warehouse=${id}`;
+    case 'purchase_order':
+      return `/app/purchase-orders?open=${id}`;
+    case 'supplier_bill':
+      return `/app/purchase-bills?open=${id}`;
     default:
       return '/app/companies';
   }

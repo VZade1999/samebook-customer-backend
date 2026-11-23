@@ -33,6 +33,9 @@ export interface LinksResult {
 
 const NOT_FOUND: LinksResult = { success: false, statusCode: 404, message: 'Document not found' };
 
+/** What Find can return: the sales documents, plus purchase orders, goods received (opens its PO) and supplier bills. */
+type SearchType = DocType | 'purchase_order' | 'grn' | 'supplier_bill';
+
 // Billing data: never cached server-side (a stale link is worse than a slow one).
 @Injectable()
 export class DocumentLinksService {
@@ -190,8 +193,15 @@ export class DocumentLinksService {
     const log = this.appLogger.forContext('DocumentLinksService', 'search', {});
     const typed = parseSearch(qRaw);
     const access = accessOf(req.permissions);
+    // Purchases (add-on): its permissions only exist while the add-on is on.
+    const perms = req.permissions || [];
+    const buy = {
+      po: perms.includes('purchases.view') || perms.includes('purchases.receive'),
+      prices: perms.includes('purchases.view'),
+      bill: perms.includes('purchases.view') || perms.includes('purchases.bills'),
+    };
     if (!typed) return { success: true, message: 'Type at least 2 characters', data: { query: '', results: [] } };
-    if (!access.quotation && !access.challan && !access.invoice) {
+    if (!access.quotation && !access.challan && !access.invoice && !buy.po && !buy.bill) {
       return { success: false, statusCode: 403, message: "You don't have access to quotations, challans or invoices" };
     }
 
@@ -208,7 +218,8 @@ export class DocumentLinksService {
       `(${cols.map((col) => `${col} LIKE :like${squeezed.length >= 2 ? ` OR ${squeeze(col)} LIKE :likeCompact` : ''}`).join(' OR ')})`;
 
     try {
-      const [quotations, challans, invoices] = await Promise.all([
+      const none = () => [] as any[];
+      const [quotations, challans, invoices, pos, grns, bills] = await Promise.all([
         access.quotation
           ? this.select(
               `SELECT id, quotation_number AS number, DATE_FORMAT(COALESCE(quotation_date, created_at), '%Y-%m-%d') AS date,
@@ -242,12 +253,47 @@ export class DocumentLinksService {
               { c, like, likeCompact },
             )
           : [],
+        buy.po
+          ? this.select(
+              `SELECT po.id, po.po_number AS number, DATE_FORMAT(po.po_date, '%Y-%m-%d') AS date, po.status, s.name AS customer_name,
+                      ${buy.prices ? 'po.grand_total' : 'NULL'} AS amount, po.supplier_ref
+                 FROM purchase_orders po JOIN suppliers s ON s.id = po.supplier_id
+                WHERE po.company_id = :c AND ${matches('po.po_number', 'po.supplier_ref')}
+                ORDER BY po.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
+        buy.po
+          ? this.select(
+              `SELECT r.po_id AS id, r.grn_number AS number, DATE_FORMAT(r.receipt_date, '%Y-%m-%d') AS date, r.status, s.name AS customer_name,
+                      NULL AS amount, r.supplier_invoice_no, r.supplier_challan_no, r.vehicle_number, r.eway_bill_number
+                 FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id
+                WHERE r.company_id = :c AND ${matches('r.grn_number', 'r.supplier_invoice_no', 'r.supplier_challan_no', 'r.vehicle_number', 'r.eway_bill_number')}
+                ORDER BY r.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
+        buy.bill
+          ? this.select(
+              `SELECT b.id, b.bill_number AS number, DATE_FORMAT(b.bill_date, '%Y-%m-%d') AS date, b.status, s.name AS customer_name, b.grand_total AS amount
+                 FROM purchase_bills b JOIN suppliers s ON s.id = b.supplier_id
+                WHERE b.company_id = :c AND ${matches('b.bill_number')}
+                ORDER BY b.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
       ]);
 
       // Which field matched, so the result can say "PO 4500123" or "Vehicle MH12…".
-      const pick = (type: DocType, row: any) => {
+      const pick = (type: SearchType, row: any) => {
         const fields: [string, string | null][] =
-          type === 'quotation'
+          type === 'purchase_order'
+            ? [['number', row.number], ['ref', row.supplier_ref]]
+            : type === 'grn'
+              ? [['number', row.number], ['bill', row.supplier_invoice_no], ['challan', row.supplier_challan_no], ['vehicle', row.vehicle_number], ['eway', row.eway_bill_number]]
+              : type === 'supplier_bill'
+                ? [['number', row.number]]
+                : type === 'quotation'
             ? [['number', row.number], ['po', row.customer_po_number]]
             : type === 'challan'
               ? [['number', row.number], ['vehicle', row.vehicle_number], ['eway', row.eway_bill_number]]
@@ -273,7 +319,10 @@ export class DocumentLinksService {
           ['quotation', quotations],
           ['challan', challans],
           ['invoice', invoices],
-        ] as [DocType, any[]][]
+          ['purchase_order', pos],
+          ['grn', grns],
+          ['supplier_bill', bills],
+        ] as [SearchType, any[]][]
       ).flatMap(([type, rows]) =>
         rows
           .map((r) => pick(type, r))

@@ -9,6 +9,9 @@ import type { InvoiceService } from '../../invoice/invoice.service';
 import type { DashboardService } from '../../dashboard/dashboard.service';
 import type { CompanyService } from '../../companies/companies.service';
 import type { AiLookupService } from '../ai-lookup.service';
+import type { PurchaseOrdersService } from '../../purchases/purchase-orders.service';
+import type { SuppliersService } from '../../purchases/suppliers.service';
+import type { PurchaseBillsService } from '../../purchases/purchase-bills.service';
 import type { RecordType, ToolKind } from '../ai-agent.rules';
 
 /** The signed-in person, from their login token (never from the AI). */
@@ -33,6 +36,10 @@ export interface AiServices {
   dashboard: DashboardService;
   company: CompanyService;
   lookup: AiLookupService;
+  /** Purchases (add-on): purchase orders with goods received, suppliers, supplier bills. */
+  purchaseOrders: PurchaseOrdersService;
+  suppliers: SuppliersService;
+  bills: PurchaseBillsService;
 }
 
 export interface ToolContext {

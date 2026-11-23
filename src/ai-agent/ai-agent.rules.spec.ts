@@ -154,6 +154,7 @@ describe('AI Assistant abilities', () => {
       'deliver_challan',
       'record_payment',
       'update_company',
+      'receive_goods',
     ]) {
       expect(confirm).toContain(n);
       expect(typeof TOOL_BY_NAME.get(n)!.prepare).toBe('function');
@@ -171,5 +172,11 @@ describe('AI Assistant abilities', () => {
     expect(need('dispatch_challan')).toEqual(['challans.dispatch']);
     expect(need('business_overview')).toEqual(['dashboard.view']);
     expect(need('list_warehouses')).toEqual(['warehouses.view']);
+    // Purchases: the same permissions as its pages; a draft PO never sends or approves anything.
+    expect(need('receive_goods')).toEqual(['purchases.receive']);
+    expect(need('draft_purchase_order')).toEqual(['purchases.create']);
+    expect(need('find_purchase_orders')).toEqual(['purchases.view']);
+    expect(TOOL_BY_NAME.get('receive_goods')!.module).toBe('purchases');
+    expect(TOOL_BY_NAME.get('draft_purchase_order')!.kind).toBe('write');
   });
 });

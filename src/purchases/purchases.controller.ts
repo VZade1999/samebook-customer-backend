@@ -232,6 +232,15 @@ export class PurchaseOrdersController extends PurchasesBase {
     });
   }
 
+  @Get('/for-quotation/:quotationId')
+  forQuotation(@Req() req: Request, @Res() res: Response, @Param('quotationId', ParseIntPipe) quotationId: number) {
+    return this.send(res, 'forQuotation', async () => {
+      const u = this.user(req);
+      this.need(u, P.create);
+      return this.orders.forQuotation(u, quotationId);
+    });
+  }
+
   @Post('/preview')
   preview(@Req() req: Request, @Res() res: Response, @Body() body: any) {
     return this.send(res, 'preview', async () => {

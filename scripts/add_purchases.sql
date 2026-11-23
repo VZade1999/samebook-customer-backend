@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
   supplier_address_id  BIGINT        NULL,
   supplier_snapshot    LONGTEXT      NULL,
   supplier_ref         VARCHAR(80)   NULL,
+  quotation_id         BIGINT        NULL,
   issuing_location_id  BIGINT        NULL,
   buyer_snapshot       LONGTEXT      NULL,
   warehouse_id         BIGINT        NULL,
@@ -344,6 +345,26 @@ WHERE NOT EXISTS (SELECT 1 FROM `permissions` WHERE `name` = 'purchases.receive'
 INSERT INTO `permissions` (`name`, `module_name`, `description`)
 SELECT * FROM (SELECT 'purchases.bills' AS name, 'Purchases' AS module_name, 'Enter supplier bills and payments to suppliers' AS description) t
 WHERE NOT EXISTS (SELECT 1 FROM `permissions` WHERE `name` = 'purchases.bills');
+
+-- purchase_orders.quotation_id: the customer quotation a PO was ordered for
+-- ("Order from supplier" on an approved quotation). Added after the first
+-- release, so existing tables get it here.
+DROP PROCEDURE IF EXISTS samebook_po_quotation;
+DELIMITER //
+CREATE PROCEDURE samebook_po_quotation()
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_orders' AND COLUMN_NAME = 'quotation_id') THEN
+    ALTER TABLE purchase_orders ADD COLUMN quotation_id BIGINT NULL AFTER supplier_ref;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'purchase_orders' AND INDEX_NAME = 'ix_po_quotation') THEN
+    ALTER TABLE purchase_orders ADD KEY ix_po_quotation (company_id, quotation_id);
+  END IF;
+END //
+DELIMITER ;
+CALL samebook_po_quotation();
+DROP PROCEDURE samebook_po_quotation;
 
 -- Purchases as an add-on, switched on for every existing company.
 INSERT INTO company_modules (company_id, module_key, enabled, plan, enabled_at)
