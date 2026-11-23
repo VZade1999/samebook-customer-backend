@@ -40,6 +40,8 @@ const DOC_TABLE: Record<DocType, { table: string; column: string }> = {
   INVOICE: { table: 'invoices', column: 'invoice_number' },
   QUOTATION: { table: 'quotations', column: 'quotation_number' },
   DELIVERY_CHALLAN: { table: 'delivery_challans', column: 'challan_number' },
+  PURCHASE_ORDER: { table: 'purchase_orders', column: 'po_number' },
+  GOODS_RECEIPT: { table: 'goods_receipts', column: 'grn_number' },
 };
 
 /** Numbers already taken are skipped; this bounds the search. */

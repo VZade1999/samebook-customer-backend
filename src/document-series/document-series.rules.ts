@@ -4,7 +4,7 @@
 // can restart every financial year, month or day. Dates are taken in the
 // business time zone (India), never the server's (UTC on Vercel).
 
-export const DOC_TYPES = ['INVOICE', 'QUOTATION', 'DELIVERY_CHALLAN'] as const;
+export const DOC_TYPES = ['INVOICE', 'QUOTATION', 'DELIVERY_CHALLAN', 'PURCHASE_ORDER', 'GOODS_RECEIPT'] as const;
 export type DocType = (typeof DOC_TYPES)[number];
 
 export const RESET_PERIODS = ['NEVER', 'YEARLY', 'MONTHLY', 'DAILY'] as const;
@@ -14,6 +14,8 @@ export const DOC_TYPE_LABEL: Record<DocType, string> = {
   INVOICE: 'Invoice',
   QUOTATION: 'Quotation',
   DELIVERY_CHALLAN: 'Delivery challan',
+  PURCHASE_ORDER: 'Purchase order',
+  GOODS_RECEIPT: 'Goods received (GRN)',
 };
 
 export const BUSINESS_TZ = 'Asia/Kolkata';
@@ -228,6 +230,9 @@ export function standardExample(docType: DocType, prefix: string | null | undefi
   const ymd = `${yy(p.y)}${pad(p.m, 2)}${pad(p.d, 2)}`;
   if (docType === 'INVOICE') return `INV-${p.y}${pad(p.m, 2)}${pad(p.d, 2)}-0001`;
   if (docType === 'QUOTATION') return `QT-${code}-${ymd}-001-0001`;
+  // Purchases restart every April: PO/26-27/0001, GRN/26-27/0001.
+  if (docType === 'PURCHASE_ORDER') return `PO/${yy(fyStartYear(p))}-${yy(fyStartYear(p) + 1)}/0001`;
+  if (docType === 'GOODS_RECEIPT') return `GRN/${yy(fyStartYear(p))}-${yy(fyStartYear(p) + 1)}/0001`;
   return `DC-${code}-${ymd}-001-0001`;
 }
 

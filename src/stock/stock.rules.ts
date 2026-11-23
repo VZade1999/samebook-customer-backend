@@ -9,6 +9,7 @@ export const MOVEMENT_TYPES = [
   'MOVED', // between two of your warehouses (one line out, one line in)
   'DISPATCHED', // a delivery challan left (or, for a transfer, arrived)
   'DISPATCH_CANCELLED', // a dispatched challan was cancelled — stock back
+  'RECEIVE_CANCELLED', // goods received against a PO (GRN) were cancelled — stock taken back out
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 

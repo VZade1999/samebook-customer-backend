@@ -70,6 +70,16 @@ export const MODULE_CATALOG: readonly ModuleDefinition[] = [
     grantPermissions: ['crm.view', 'crm.create'],
   },
   {
+    key: 'purchases',
+    name: 'Purchases',
+    description:
+      'Suppliers, purchase orders in Indian GST format with approval, goods received straight into stock, supplier bills and payments — with MSME 45-day and GST-credit reminders.',
+    core: false,
+    plan: 'FREE',
+    permissionPrefixes: ['purchases.'],
+    grantPermissions: ['purchases.view', 'purchases.create'],
+  },
+  {
     key: 'ai_agent',
     name: 'AI Assistant',
     description:
