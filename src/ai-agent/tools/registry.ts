@@ -1,5 +1,6 @@
 import type Groq from 'groq-sdk';
 import { challanTools } from './challans';
+import { accountTools } from './accounts';
 import { companyTools } from './company';
 import { customerTools } from './customers';
 import { invoiceTools } from './invoices';
@@ -18,12 +19,13 @@ export const AI_TOOLS: readonly AiTool[] = [
   ...challanTools,
   ...invoiceTools,
   ...purchaseTools,
+  ...accountTools,
   ...companyTools,
 ];
 
 export const TOOL_BY_NAME: ReadonlyMap<string, AiTool> = new Map(AI_TOOLS.map((t) => [t.name, t]));
 
-export const GROUP_ORDER = ['Overview', 'Customers', 'Products & stock', 'Quotations', 'Delivery challans', 'Invoices', 'Purchases', 'Company'];
+export const GROUP_ORDER = ['Overview', 'Customers', 'Products & stock', 'Quotations', 'Delivery challans', 'Invoices', 'Purchases', 'Accounts', 'Company'];
 
 /** The definition the AI sees (name, short description, arguments). */
 export const toModelTool = (t: AiTool): Groq.Chat.ChatCompletionTool => ({

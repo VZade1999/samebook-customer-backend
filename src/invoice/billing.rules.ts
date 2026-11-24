@@ -537,10 +537,13 @@ export const parseDispatch = (body: any): { ok: true; values: Partial<Dispatch> 
 
 // ── Cancelling an invoice ─────────────────────────────────────────────────
 
-export const cancelBlocker = (inv: { status?: unknown; paid_amount?: unknown }): string | null => {
+export const cancelBlocker = (inv: { status?: unknown; paid_amount?: unknown; credited_amount?: unknown }): string | null => {
   if (!isLiveInvoice(inv.status)) return 'This invoice is already cancelled';
   if (num(inv.paid_amount) > 0.005) {
     return "Payments are recorded on this invoice, so it can't be cancelled. Settle it with a credit note instead.";
+  }
+  if (num(inv.credited_amount) > 0.005) {
+    return "A credit note is applied to this invoice, so it can't be cancelled. Cancel the credit note first.";
   }
   return null;
 };

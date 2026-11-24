@@ -58,6 +58,8 @@ describe('payments', () => {
     expect(paymentBlocker({ status: 'PAID', grand_total: 100, paid_amount: 100 })).toMatch(/already paid/);
     expect(paymentBlocker({ status: 'GENERATED', grand_total: 100, paid_amount: 100 })).toMatch(/already paid/);
     expect(paymentBlocker({ status: 'PARTIAL_PAID', grand_total: 100, paid_amount: 40 })).toBeNull();
+    // A credit note can settle what is left.
+    expect(paymentBlocker({ status: 'PARTIAL_PAID', grand_total: 100, paid_amount: 40, credited_amount: 60 })).toMatch(/already paid/);
   });
 
   const ctx = { balancePaise: 50000, today: '2026-11-18' };

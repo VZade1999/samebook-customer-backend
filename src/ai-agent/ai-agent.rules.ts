@@ -29,7 +29,7 @@ export const DOCUMENT_TEXT_MAX = 6000;
 
 export type ToolKind = 'read' | 'write' | 'confirm';
 export type ActionStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED' | 'EXPIRED';
-export type RecordType = 'customer' | 'product' | 'quotation' | 'challan' | 'invoice' | 'warehouse' | 'company' | 'purchase_order' | 'supplier_bill';
+export type RecordType = 'customer' | 'product' | 'quotation' | 'challan' | 'invoice' | 'warehouse' | 'company' | 'purchase_order' | 'supplier_bill' | 'customer_ledger' | 'supplier_ledger' | 'expense';
 
 // ── Settings ────────────────────────────────────────────────────────────────
 
@@ -285,6 +285,12 @@ export function recordLink(type: RecordType, id: number): string {
       return `/app/purchase-orders?open=${id}`;
     case 'supplier_bill':
       return `/app/purchase-bills?open=${id}`;
+    case 'customer_ledger':
+      return `/app/ledger?party=customer:${id}`;
+    case 'supplier_ledger':
+      return `/app/ledger?party=supplier:${id}`;
+    case 'expense':
+      return `/app/expenses?open=expense:${id}`;
     default:
       return '/app/companies';
   }
@@ -394,6 +400,8 @@ export function suggestionsFor(permissions: string[], allowChanges: boolean): Su
   } else if (has('dashboard.view')) {
     out.push({ title: 'This month at a glance', prompt: 'Give me a quick overview of this month: quotations, challans and stock alerts.' });
   }
+  // Accounts (add-on): its permissions exist only while it is on.
+  if (has('accounts.view')) out.push({ title: 'Cash, bank and dues', prompt: 'How much do I have in cash and bank, who owes me the most, and whom do I owe?' });
   if (has('invoices.view')) out.push({ title: 'Who owes us money?', prompt: 'Which invoices are overdue? Show the biggest balances first.' });
   if (has('quotations.view')) out.push({ title: 'Quotations expiring soon', prompt: 'Which open quotations expire in the next 7 days?' });
   if (has('products.view')) out.push({ title: 'Running low on stock', prompt: 'Which products are low or out of stock, and where are they kept?' });

@@ -117,9 +117,13 @@ describe('AI Assistant rules', () => {
     expect(sales).toContain('Make a quotation');
     expect(sales).not.toContain('Who owes us money?');
     expect(sales).not.toContain('How is this month going?');
+    expect(sales).not.toContain('Cash, bank and dues');
+    expect(suggestionsFor(['accounts.view'], false).map((s) => s.title)).toContain('Cash, bank and dues');
     const lookOnly = suggestionsFor(['quotations.view', 'quotations.create'], false).map((s) => s.title);
     expect(lookOnly).not.toContain('Make a quotation');
     expect(recordLink('quotation', 42)).toBe('/app/quotation?open=42');
+    expect(recordLink('customer_ledger', 7)).toBe('/app/ledger?party=customer:7');
+    expect(recordLink('expense', 3)).toBe('/app/expenses?open=expense:3');
   });
 });
 
@@ -155,6 +159,7 @@ describe('AI Assistant abilities', () => {
       'record_payment',
       'update_company',
       'receive_goods',
+      'record_expense',
     ]) {
       expect(confirm).toContain(n);
       expect(typeof TOOL_BY_NAME.get(n)!.prepare).toBe('function');
@@ -171,6 +176,12 @@ describe('AI Assistant abilities', () => {
     expect(need('record_payment')).toEqual(['invoices.edit']);
     expect(need('dispatch_challan')).toEqual(['challans.dispatch']);
     expect(need('business_overview')).toEqual(['dashboard.view']);
+    // Accounts: balances and ledgers need View books, P&L needs Reports, an expense needs Record entries.
+    expect(need('business_books')).toEqual(['accounts.view']);
+    expect(need('party_ledger_details')).toEqual(['accounts.view']);
+    expect(need('business_profit_and_loss')).toEqual(['accounts.reports']);
+    expect(need('record_expense')).toEqual(['accounts.record']);
+    expect(TOOL_BY_NAME.get('record_expense')!.module).toBe('accounts');
     expect(need('list_warehouses')).toEqual(['warehouses.view']);
     // Purchases: the same permissions as its pages; a draft PO never sends or approves anything.
     expect(need('receive_goods')).toEqual(['purchases.receive']);

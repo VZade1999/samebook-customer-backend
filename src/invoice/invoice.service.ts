@@ -1346,7 +1346,8 @@ export class InvoiceService {
       const blocked = paymentBlocker(invoice);
       if (blocked) throw new BadRequestException(blocked);
 
-      const totalPaise = toPaise(invoice.grand_total);
+      // What is to be paid: the total less credit notes applied to it.
+      const totalPaise = toPaise(invoice.grand_total) - toPaise(invoice.credited_amount);
       const alreadyPaidPaise = toPaise(invoice.paid_amount);
       const parsed = parsePayment(payload || {}, {
         balancePaise: totalPaise - alreadyPaidPaise,

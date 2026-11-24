@@ -10,6 +10,10 @@ export const MOVEMENT_TYPES = [
   'DISPATCHED', // a delivery challan left (or, for a transfer, arrived)
   'DISPATCH_CANCELLED', // a dispatched challan was cancelled — stock back
   'RECEIVE_CANCELLED', // goods received against a PO (GRN) were cancelled — stock taken back out
+  'RETURN_IN', // a customer returned goods (credit note) — back into stock
+  'RETURN_IN_CANCELLED', // that credit note was cancelled — taken back out
+  'RETURN_OUT', // goods returned to a supplier (debit note) — out of stock
+  'RETURN_OUT_CANCELLED', // that debit note was cancelled — back into stock
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 

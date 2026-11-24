@@ -81,6 +81,9 @@ export interface invoicesAttributes {
 
   balance_amount?: number;
 
+  /** Credit notes applied to this invoice (balance = grand_total - paid_amount - credited_amount). */
+  credited_amount?: number;
+
   pdf_path?: string;
 
   generated_by?: number;
@@ -147,6 +150,7 @@ export type invoicesOptionalAttributes =
   | 'grand_total'
   | 'paid_amount'
   | 'balance_amount'
+  | 'credited_amount'
   | 'pdf_path'
   | 'generated_by'
   | 'created_at'
@@ -225,6 +229,7 @@ export class invoices
 
   paid_amount?: number;
   balance_amount?: number;
+  credited_amount?: number;
 
   pdf_path?: string;
 
@@ -381,6 +386,13 @@ export class invoices
 
         balance_amount: {
           type: DataTypes.DECIMAL(15, 2),
+          defaultValue: 0,
+        },
+
+        // Credit notes applied (scripts/add_accounts.sql).
+        credited_amount: {
+          type: DataTypes.DECIMAL(15, 2),
+          allowNull: false,
           defaultValue: 0,
         },
 

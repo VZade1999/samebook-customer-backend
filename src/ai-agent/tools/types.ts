@@ -12,6 +12,9 @@ import type { AiLookupService } from '../ai-lookup.service';
 import type { PurchaseOrdersService } from '../../purchases/purchase-orders.service';
 import type { SuppliersService } from '../../purchases/suppliers.service';
 import type { PurchaseBillsService } from '../../purchases/purchase-bills.service';
+import type { LedgerService } from '../../accounts/ledger.service';
+import type { MoneyService } from '../../accounts/money.service';
+import type { ReportsService } from '../../accounts/reports.service';
 import type { RecordType, ToolKind } from '../ai-agent.rules';
 
 /** The signed-in person, from their login token (never from the AI). */
@@ -40,6 +43,10 @@ export interface AiServices {
   purchaseOrders: PurchaseOrdersService;
   suppliers: SuppliersService;
   bills: PurchaseBillsService;
+  /** Accounts (add-on): ledgers and balances, receipts and expenses, reports. */
+  ledger: LedgerService;
+  money: MoneyService;
+  reports: ReportsService;
 }
 
 export interface ToolContext {

@@ -29,6 +29,7 @@ import { DeliveryChallanModule } from './delivery-challan/delivery-challan.modul
 import { CompanyModulesModule } from './company-modules/company-modules.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { PurchasesModule } from './purchases/purchases.module';
+import { AccountsModule } from './accounts/accounts.module';
 import { DocumentSeriesModule } from './document-series/document-series.module';
 import { DocumentLinksModule } from './document-links/document-links.module';
 import { AccessModule } from './rbac/access.module';
@@ -81,6 +82,7 @@ const ignoreLoadEnvFile = !(!NODE_ENV || NODE_ENV === 'local');
     CompanyModulesModule,
     DashboardModule,
     PurchasesModule,
+    AccountsModule,
   ],
   //controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerBehindProxyGuard }],

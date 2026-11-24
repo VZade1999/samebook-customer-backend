@@ -96,9 +96,10 @@ export const statusAfterPayment = (totalPaise: number, paidPaise: number): 'GENE
   paidPaise >= totalPaise ? 'PAID' : paidPaise > 0 ? 'PARTIAL_PAID' : 'GENERATED';
 
 /** Why no payment can be recorded against this invoice, or null when it can. */
-export const paymentBlocker = (inv: { status?: string | null; balance_amount?: unknown; grand_total?: unknown; paid_amount?: unknown }): string | null => {
+export const paymentBlocker = (inv: { status?: string | null; balance_amount?: unknown; grand_total?: unknown; paid_amount?: unknown; credited_amount?: unknown }): string | null => {
   if (DEAD_STATUSES.includes(String(inv.status ?? ''))) return 'This invoice is cancelled, so payments can no longer be recorded against it';
-  const balance = toPaise(inv.grand_total) - toPaise(inv.paid_amount);
+  // Credit notes applied to the invoice lower what is left to pay.
+  const balance = toPaise(inv.grand_total) - toPaise(inv.paid_amount) - toPaise(inv.credited_amount);
   if (inv.status === 'PAID' || balance <= 0) return 'This invoice is already paid in full';
   return null;
 };

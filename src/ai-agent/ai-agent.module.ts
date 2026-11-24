@@ -8,6 +8,7 @@ import { DeliveryChallanModule } from 'src/delivery-challan/delivery-challan.mod
 import { InvoiceModule } from 'src/invoice/invoice.module';
 import { DashboardModule } from 'src/dashboard/dashboard.module';
 import { PurchasesModule } from 'src/purchases/purchases.module';
+import { AccountsModule } from 'src/accounts/accounts.module';
 import { AiAssistantController } from './ai-assistant.controller';
 import { AiAssistantService } from './ai-assistant.service';
 import { AiLookupService } from './ai-lookup.service';
@@ -17,7 +18,7 @@ import { AiStoreService } from './ai-store.service';
 // every rule — numbering, stock, PO checks, tenant scoping — stays in one place.
 // AppLogger and CompanyModulesService are global.
 @Module({
-  imports: [CustomerModule, ProductModule, CompanyModule, QuotationModule, StockModule, DeliveryChallanModule, InvoiceModule, DashboardModule, PurchasesModule],
+  imports: [CustomerModule, ProductModule, CompanyModule, QuotationModule, StockModule, DeliveryChallanModule, InvoiceModule, DashboardModule, PurchasesModule, AccountsModule],
   controllers: [AiAssistantController],
   providers: [AiAssistantService, AiStoreService, AiLookupService],
 })

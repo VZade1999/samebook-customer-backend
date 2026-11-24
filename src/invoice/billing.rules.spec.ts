@@ -326,6 +326,7 @@ describe('cancelling an invoice', () => {
     expect(cancelBlocker({ status: 'GENERATED', paid_amount: 0 })).toBeNull();
     expect(cancelBlocker({ status: 'CANCELLED' })).toMatch(/already cancelled/);
     expect(cancelBlocker({ status: 'PARTIAL_PAID', paid_amount: '500.00' })).toMatch(/Payments are recorded/);
+    expect(cancelBlocker({ status: 'GENERATED', paid_amount: 0, credited_amount: '472.00' })).toMatch(/credit note is applied/);
   });
 
   it('needs a short reason', () => {

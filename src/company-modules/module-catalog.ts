@@ -80,6 +80,16 @@ export const MODULE_CATALOG: readonly ModuleDefinition[] = [
     grantPermissions: ['purchases.view', 'purchases.create'],
   },
   {
+    key: 'accounts',
+    name: 'Accounts',
+    description:
+      'Your books, the Indian way: customer and supplier ledgers with statements to share, cash and bank books, and profit & loss, balance sheet and GST reports — recorded from your invoices, bills and payments by themselves.',
+    core: false,
+    plan: 'FREE',
+    permissionPrefixes: ['accounts.'],
+    grantPermissions: ['accounts.view'],
+  },
+  {
     key: 'ai_agent',
     name: 'AI Assistant',
     description:

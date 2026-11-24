@@ -34,7 +34,7 @@ export interface LinksResult {
 const NOT_FOUND: LinksResult = { success: false, statusCode: 404, message: 'Document not found' };
 
 /** What Find can return: the sales documents, plus purchase orders, goods received (opens its PO) and supplier bills. */
-type SearchType = DocType | 'purchase_order' | 'grn' | 'supplier_bill';
+type SearchType = DocType | 'purchase_order' | 'grn' | 'supplier_bill' | 'receipt' | 'expense' | 'refund' | 'credit_note' | 'debit_note';
 
 // Billing data: never cached server-side (a stale link is worse than a slow one).
 @Injectable()
@@ -186,8 +186,9 @@ export class DocumentLinksService {
 
   /**
    * Finds documents by any number on them: quotation, challan or invoice
-   * number, the customer's PO number, a vehicle or an e-way bill number.
-   * Only document types the person can open are searched.
+   * number, the customer's PO number, a vehicle or an e-way bill number —
+   * plus purchase documents and, with Accounts, receipts, expenses, refunds
+   * and credit / debit notes. Only document types the person can open are searched.
    */
   async search(qRaw: unknown, req: LinksRequester): Promise<LinksResult> {
     const log = this.appLogger.forContext('DocumentLinksService', 'search', {});
@@ -200,8 +201,10 @@ export class DocumentLinksService {
       prices: perms.includes('purchases.view'),
       bill: perms.includes('purchases.view') || perms.includes('purchases.bills'),
     };
+    // Accounts (add-on): receipts, expenses, refunds, credit and debit notes.
+    const books = ['accounts.view', 'accounts.record', 'accounts.reports'].some((p) => perms.includes(p));
     if (!typed) return { success: true, message: 'Type at least 2 characters', data: { query: '', results: [] } };
-    if (!access.quotation && !access.challan && !access.invoice && !buy.po && !buy.bill) {
+    if (!access.quotation && !access.challan && !access.invoice && !buy.po && !buy.bill && !books) {
       return { success: false, statusCode: 403, message: "You don't have access to quotations, challans or invoices" };
     }
 
@@ -219,7 +222,8 @@ export class DocumentLinksService {
 
     try {
       const none = () => [] as any[];
-      const [quotations, challans, invoices, pos, grns, bills] = await Promise.all([
+      const custName = `(SELECT COALESCE(NULLIF(cu.display_name, ''), cu.company_name) FROM customers cu WHERE cu.id = x.customer_id)`;
+      const [quotations, challans, invoices, pos, grns, bills, receipts, expenses, refunds, cns, dns] = await Promise.all([
         access.quotation
           ? this.select(
               `SELECT id, quotation_number AS number, DATE_FORMAT(COALESCE(quotation_date, created_at), '%Y-%m-%d') AS date,
@@ -282,6 +286,47 @@ export class DocumentLinksService {
               { c, like, likeCompact },
             ).catch(none)
           : [],
+        books
+          ? this.select(
+              `SELECT x.id, x.receipt_number AS number, DATE_FORMAT(x.receipt_date, '%Y-%m-%d') AS date, x.status, ${custName} AS customer_name, x.amount, x.reference
+                 FROM customer_receipts x WHERE x.company_id = :c AND ${matches('x.receipt_number', 'x.reference')}
+                ORDER BY x.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
+        books
+          ? this.select(
+              `SELECT x.id, x.expense_number AS number, DATE_FORMAT(x.expense_date, '%Y-%m-%d') AS date, x.status,
+                      COALESCE(NULLIF(x.payee, ''), (SELECT a.name FROM ledger_accounts a WHERE a.id = x.account_id)) AS customer_name, x.total AS amount, x.bill_number, x.reference
+                 FROM expenses x WHERE x.company_id = :c AND ${matches('x.expense_number', 'x.bill_number', 'x.reference')}
+                ORDER BY x.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
+        books
+          ? this.select(
+              `SELECT x.id, x.refund_number AS number, DATE_FORMAT(x.refund_date, '%Y-%m-%d') AS date, x.status, ${custName} AS customer_name, x.amount, x.reference
+                 FROM customer_refunds x WHERE x.company_id = :c AND ${matches('x.refund_number', 'x.reference')}
+                ORDER BY x.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
+        books
+          ? this.select(
+              `SELECT x.id, x.cn_number AS number, DATE_FORMAT(x.cn_date, '%Y-%m-%d') AS date, x.status, ${custName} AS customer_name, x.total AS amount
+                 FROM credit_notes x WHERE x.company_id = :c AND ${matches('x.cn_number')}
+                ORDER BY x.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
+        books
+          ? this.select(
+              `SELECT x.id, x.dn_number AS number, DATE_FORMAT(x.dn_date, '%Y-%m-%d') AS date, x.status, s.name AS customer_name, x.total AS amount
+                 FROM debit_notes x JOIN suppliers s ON s.id = x.supplier_id WHERE x.company_id = :c AND ${matches('x.dn_number')}
+                ORDER BY x.id DESC LIMIT ${limit}`,
+              { c, like, likeCompact },
+            ).catch(none)
+          : [],
       ]);
 
       // Which field matched, so the result can say "PO 4500123" or "Vehicle MH12…".
@@ -291,8 +336,12 @@ export class DocumentLinksService {
             ? [['number', row.number], ['ref', row.supplier_ref]]
             : type === 'grn'
               ? [['number', row.number], ['bill', row.supplier_invoice_no], ['challan', row.supplier_challan_no], ['vehicle', row.vehicle_number], ['eway', row.eway_bill_number]]
-              : type === 'supplier_bill'
+              : type === 'supplier_bill' || type === 'credit_note' || type === 'debit_note'
                 ? [['number', row.number]]
+                : type === 'receipt' || type === 'refund'
+                ? [['number', row.number], ['ref', row.reference]]
+                : type === 'expense'
+                ? [['number', row.number], ['bill', row.bill_number], ['ref', row.reference]]
                 : type === 'quotation'
             ? [['number', row.number], ['po', row.customer_po_number]]
             : type === 'challan'
@@ -306,7 +355,7 @@ export class DocumentLinksService {
           id: Number(row.id),
           number: row.number,
           date: row.date || null,
-          status: type === 'quotation' && (Number(row.has_invoice) === 1 || row.has_invoice === true) ? 'INVOICED' : row.status || null,
+          status: type === 'quotation' && (Number(row.has_invoice) === 1 || row.has_invoice === true) ? 'INVOICED' : row.status === 'ACTIVE' ? null : row.status || null,
           customer_name: row.customer_name || null,
           amount: row.amount === null || row.amount === undefined ? null : Math.round(Number(row.amount) * 100) / 100,
           matched: ranked.rank < 3 ? ranked.field : 'number',
@@ -322,6 +371,11 @@ export class DocumentLinksService {
           ['purchase_order', pos],
           ['grn', grns],
           ['supplier_bill', bills],
+          ['receipt', receipts],
+          ['expense', expenses],
+          ['refund', refunds],
+          ['credit_note', cns],
+          ['debit_note', dns],
         ] as [SearchType, any[]][]
       ).flatMap(([type, rows]) =>
         rows

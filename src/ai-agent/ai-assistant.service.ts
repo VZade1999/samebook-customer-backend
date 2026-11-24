@@ -40,6 +40,9 @@ import { buildSystemPrompt, DOCUMENT_DEFAULT_ASK } from './ai-agent.prompt';
 import { PurchaseOrdersService } from '../purchases/purchase-orders.service';
 import { SuppliersService } from '../purchases/suppliers.service';
 import { PurchaseBillsService } from '../purchases/purchase-bills.service';
+import { LedgerService } from '../accounts/ledger.service';
+import { MoneyService } from '../accounts/money.service';
+import { ReportsService } from '../accounts/reports.service';
 import { DocumentExtractionError, extractTextFromDocument } from './document-extraction.util';
 
 /** A refusal the controller sends as this HTTP status with a plain message. */
@@ -108,8 +111,11 @@ export class AiAssistantService {
     purchaseOrders: PurchaseOrdersService,
     suppliers: SuppliersService,
     bills: PurchaseBillsService,
+    ledger: LedgerService,
+    money: MoneyService,
+    reports: ReportsService,
   ) {
-    this.services = { customers, directory, products, catalog, stock, quotations, challans, invoices, dashboard, company, lookup, purchaseOrders, suppliers, bills };
+    this.services = { customers, directory, products, catalog, stock, quotations, challans, invoices, dashboard, company, lookup, purchaseOrders, suppliers, bills, ledger, money, reports };
     if (!this.pool.ready) {
       this.appLogger.forContext('AiAssistantService', 'constructor').error('No AI provider configured (GEMINI_API_KEY / CEREBRAS_API_KEY / GROQ_API_KEY)');
     }

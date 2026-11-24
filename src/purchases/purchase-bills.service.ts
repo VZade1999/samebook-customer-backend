@@ -462,6 +462,7 @@ export class PurchaseBillsService {
         t,
       );
       if (Number(paid?.n)) throw bad('Payments are recorded against this bill — cancel those payments first');
+      if (Number(b.credited_amount) > 0.004) throw bad('A debit note is raised against this bill — cancel the debit note first');
       await this.db.run(
         `UPDATE purchase_bills SET status = 'CANCELLED', balance_amount = 0, cancel_reason = :r, cancelled_by = :u, cancelled_at = NOW(), updated_by = :u WHERE id = :id`,
         { r: reason.value, u: user.user_id, id },
@@ -594,7 +595,8 @@ export class PurchaseBillsService {
 
   private async allocate(paymentId: number, billId: number, amount: number, userId: number, t: any) {
     await this.db.insert('INSERT INTO supplier_payment_allocations (payment_id, bill_id, amount) VALUES (:p, :b, :a)', { p: paymentId, b: billId, a: amount }, t);
-    const b = await this.db.one('SELECT grand_total, paid_amount FROM purchase_bills WHERE id = :id FOR UPDATE', { id: billId }, t);
+    // grand_total here = what is to be paid: the bill less debit notes applied to it.
+    const b = await this.db.one('SELECT grand_total - COALESCE(credited_amount, 0) AS grand_total, paid_amount FROM purchase_bills WHERE id = :id FOR UPDATE', { id: billId }, t);
     const paid = round2(Number(b.paid_amount) + amount);
     await this.db.run(
       'UPDATE purchase_bills SET paid_amount = :paid, balance_amount = :bal, status = :st, updated_by = :u WHERE id = :id',
@@ -614,7 +616,7 @@ export class PurchaseBillsService {
       if (p.status !== 'ACTIVE') throw bad('This payment is already cancelled');
       const allocations = await this.db.sel('SELECT bill_id, amount FROM supplier_payment_allocations WHERE payment_id = :id', { id }, t);
       for (const a of allocations) {
-        const b = await this.db.one('SELECT grand_total, paid_amount, status FROM purchase_bills WHERE id = :id FOR UPDATE', { id: a.bill_id }, t);
+        const b = await this.db.one('SELECT grand_total - COALESCE(credited_amount, 0) AS grand_total, paid_amount, status FROM purchase_bills WHERE id = :id FOR UPDATE', { id: a.bill_id }, t);
         if (!b || b.status === 'CANCELLED') continue;
         const paid = Math.max(0, round2(Number(b.paid_amount) - Number(a.amount)));
         await this.db.run(
